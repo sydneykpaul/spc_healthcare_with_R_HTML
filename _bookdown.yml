@@ -1,3 +1,4 @@
 book_filename: "SPC"
 chapter_name: "Chapter "
 delete_merged_file: true
+new_session: no

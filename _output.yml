@@ -4,17 +4,28 @@ bookdown::pdf_book:
   latex_engine: xelatex
   citation_package: natbib
   keep_tex: yes
+  toc: true
+  toc_depth: 3
 
 bookdown::epub_book: default
 
 bookdown::gitbook:
+  css: style.css
+  split_by: chapter
   config:
-    split_by: section
     toc:
       collapse: subsection
       before: |
         <li><strong><a href="./">SPC in Healthcare</a></strong></li>
     edit:
       link: https://github.com/Rmadillo/spc_healthcare_with_r/edit/master/%s
+
+bookdown::html_chapters:
   css: style.css
+
+bookdown::html_book:
+  toc: yes
+  theme: simplex
+  css: style.css
+
 

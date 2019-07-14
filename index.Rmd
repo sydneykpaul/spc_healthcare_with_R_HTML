@@ -1,17 +1,35 @@
 --- 
 title: "Statistical Process Control in Healthcare with R"
-author: "Dwight Barry, Brendan Bettinger, and Andrew Cooper"
+author: "Dwight Barry, Brendan Bettinger, Andrew Cooper, and Sydney Paul"
 date: "`r format(Sys.Date(), '%B %Y')`"
 site: bookdown::bookdown_site
+
 output: bookdown::gitbook
 documentclass: book
+
+classoption: twoside
+fontsize: 12pt
+linestretch: 1.5
+geometry: margin=1in
+
+urlcolor: blue
+linkcolor: blue
+
 github-repo: Rmadillo/spc_healthcare
 description: "Using SPC methods in healthcare can be tricky. We show you how to do it correctly, using R."
----
+---  
 
 ```{r setup, include=FALSE}
 # Global options
 knitr::opts_chunk$set(warning = FALSE, message = FALSE, comment = NA)
+
+# This controls the margins size needed for epub
+if(!knitr:::is_html_output())
+{
+  options("width" = 56)
+  knitr::opts_chunk$set(tidy.opts=list(width.cutoff = 56, indent = 2), tidy = TRUE)
+  knitr::opts_chunk$set(fig.pos = 'H')
+}
 
 # Load libraries
 library(dplyr)
@@ -19,28 +37,51 @@ library(scales)
 library(lubridate)
 library(forecast) 
 library(ggseas)
-library(qicharts)
+library(qicharts2)
 library(bookdown)
 library(knitr)
 library(ggplot2)
 library(ggExtra)
 library(gridExtra)
+library(pander)
 ```
 
-# Overview  {#overview}
+# <span>Preface</span> {-}
 
-Statistical process control (SPC) was a triumph of manufacturing analytics, and its success spread across a variety of industries---most improbably, into healthcare. 
+*** 
 
-Healthcare is rarely compatible with the idea of an assembly line, but lean manufacturing thinking ("Lean") has taken over healthcare management around the world, and SPC methods are common tools in Lean. Unlike in manufacturing, stability is an inherently tricky concept in healthcare, so this has led to much *misuse* of these methods. Bad methods lead to bad inferences, and bad inferences can lead to poor decisions. This book aims to help analysts apply SPC methods more accurately in healthcare, using the statistical software R.  
+<br>
 
-## If you've never used R
+## We have a problem {-}
 
-Some BI analysts are apprehensive about getting into R, but if you've ever written a line of SQL or created a formula in an Excel cell, this is no different in concept. Yes, the R language is full of idiosyncracies and outright annoyances, but when you need to accomplish particular goals, it can be fairly easy.   
+Statistical process control (SPC) was a triumph of manufacturing analytics, and its success spread across a variety of industries---most improbably, into healthcare.  
+
+Healthcare is rarely compatible with the idea of an assembly line, but lean manufacturing thinking ("Lean") has taken over healthcare management around the world, and SPC methods are common tools in Lean.  
+
+Unlike in manufacturing, stability is an inherently tricky concept in healthcare, so this has led to much *misuse* of these methods. Bad methods lead to bad inferences, and bad inferences can lead to poor decisions.  
+
+This book aims to help analysts apply SPC methods more accurately in healthcare, using the statistical software R.  
 
 
-For example, you can create a *u*-chart with only three lines of code, start to finish--load the package, load the data, create the plot:  
+## Common questions {-}
 
-<br>  
+### _Who is this book for?_ {-}
+This book is geared toward analysts working in the healthcare industry, who are already familiar with basic SPC methods and concepts. We do cover some basics, but we focus primarily on the areas that cause the most misunderstandings and misuse; {SKP: INSERT CORRECT LINK} Chapter 13, [Useful References](#useful), provides a great place to start or continue learning about SPC.
+
+### _What if I have never used R?_ {-}
+We don't presume familiarity with R, but of course everything's easier if you've used R before. 
+
+If you haven't, here's what you need to get started:  
+  
+- You can download R from [https://cran.r-project.org/](https://cran.r-project.org/).  
+
+- You can download RStudio from [https://www.rstudio.com/products/rstudio/download/](https://www.rstudio.com/products/rstudio/download/).
+
+Some BI analysts are apprehensive about getting into R, but if you've ever written a line of SQL or created a formula in an Excel cell, this is no different in concept. Yes, the R language is full of idiosyncracies and outright annoyances, but when you need to accomplish particular goals, it can be fairly easy! 
+
+For example, you can create a *u*-chart with only three lines of code!
+
+<br>
 
 ```{r intro_example, fig.height=3, fig.width=6}
 # Load the qicharts package, a simple interface to SPC charts
@@ -49,8 +90,7 @@ library(qicharts2)
 # Load some example data from another R package as an example
 data(pcmanufact, package = "qcc")
 
-# You can look at the data by clicking on the spreadsheet button in the Environment tab,
-# or by running `View(pcmanufact)` in the console
+# You can look at the data by clicking on the spreadsheet button in the Environment tab, or by running `View(pcmanufact)` in the console
 
 # Create the u-chart
 qicharts::qic(y = pcmanufact$x, n = pcmanufact$size, chart = "u", main = "Easy u-chart")
@@ -58,130 +98,45 @@ qicharts::qic(y = pcmanufact$x, n = pcmanufact$size, chart = "u", main = "Easy u
 
 <br>  
 
-You can find help in R using `?`, followed by the function name, e.g.,  
+Another useful feature of R: you can ask for help in R using `?`, followed by the function name, e.g.,  
 
 ```{r help, eval=FALSE}
 ?qic
 ```
 
+Between the straightforward functions and the help documentation, you'll be coding in R in no time!
 
-## What you need
+### _What do I need to start?_ {-}
   
-We assume that users of this book will already be familiar with basic SPC methods and concepts. We do cover some basics, but we focus primarily on the areas that cause the most misunderstandings and misuse; Chapter 13, [Useful References](#useful), provides a great place to start or continue learning about SPC.  
-
-We don't presume familiarity with R, though of course everything's easier if you've used R before. If you haven't, here's what you need to get started:  
+First, you'll need R and RStudio, which can be downloaded from the links above. 
   
-- You can download R from [https://cran.r-project.org/](https://cran.r-project.org/).  
 
-- You can download RStudio from [https://www.rstudio.com/products/rstudio/download/](https://www.rstudio.com/products/rstudio/download/).  
+Next, open RStudio and install the packages used in this book by copying and pasting this code into the **Console**:  
 
-Open RStudio and install the packages used in this book by copying and pasting this code into the **Console**:  
-
+{SKP: Make sure these are up-to-date by end}
 ```{r install_packs, eval=FALSE}
-install.packages("ggplot2", "forecast", "fpp2", "ggExtra", "ggseas", "gridExtra", "tidyverse", 
-                 "qcc", "qicharts2", "scales", dependencies = TRUE)
+install.packages("ggplot2", "forecast", "fpp2", "ggExtra", "ggseas", "gridExtra", "tidyverse", "qcc", "qicharts2", "scales", dependencies = TRUE)
 ```
 
 This book was created using R version 3.5.1 and RStudio 1.1.456. Code was tested on Mac OS 10.12.6 (aka Sierra).  
+  
 
 
-## Book repo
+## About {-}
 
-You can submit pull requests for any errors or typos at https://github.com/Rmadillo/spc_healthcare_with_r.  
-
-
-## About
+### _Who are we?_ {-}
 
 We are all analysts at *Seattle Children's Hospital* in Seattle, Washington, USA.  
 
-\- Dwight Barry is a Principal Data Scientist in *Enterprise Analytics*. Twitter: @healthstatsdude  
+* Dwight Barry is a Principal Data Scientist in *Enterprise Analytics*. Twitter: \@healthstatsdude  
 
-\- Andy Cooper is a Lead Data Scientist in *Enterprise Analytics*. Twitter: @DataSciABC    
+* Brendan Bettinger is a Senior Analyst in *Infection Prevention*. 
 
-\- Brendan Bettinger is a Senior Analyst in *Infection Prevention*.  
+* Andy Cooper is a Lead Data Scientist in *Enterprise Analytics*. Twitter: \@DataSciABC
+
+* Sydney Paul is a Data Science Intern in *Enterprise Analytics*.
 
 
-``` {r spccode, echo = FALSE, fig.height = 3.5}
+### _What if I find a typo?_ {-}
+You can submit pull requests for any errors or typos at https://github.com/Rmadillo/spc_healthcare_with_r.
 
-spc.plot = function(subgroup, point, mean, sigma, k = 3,
-                     ucl.show = TRUE, lcl.show = TRUE, 
-                     band.show = TRUE, rule.show = TRUE,
-                     ucl.max = Inf, lcl.min = -Inf,
-                     label.x = "Subgroup", label.y = "Value")
-{
-    # Plots control chart with ggplot
-    # 
-    # Args:
-    #   subgroup: Subgroup definition (for x-axis)
-    #   point: Subgroup sample values (for y-axis)
-    #   mean: Process mean value (for center line)
-    #   sigma: Process variation value (for control limits)
-    #   k: Specification for k-sigma limits above and below center line.
-    #      Default is 3.
-    #   ucl.show: Visible upper control limit? Default is true.
-    #   lcl.show: Visible lower control limit? Default is true.
-    #   band.show: Visible bands between 1-2 sigma limits?  Default is true.
-    #   rule.show: Highlight run rule indicators in orange?  Default is true.
-    #   ucl.max: Maximum feasible value for upper control limit.
-    #   lcl.min: Minimum feasible value for lower control limit.
-    #   label.x: Specify x-axis label.
-    #   label.y: Specify y-axis label.
-    
-    
-    df = data.frame(subgroup, point)
-    df$ucl = pmin(ucl.max, mean + k*sigma)
-    df$lcl = pmax(lcl.min, mean - k*sigma)
-    
-    warn.points = function(rule, num, den) {
-        sets = mapply(seq, 1:(length(subgroup) - (den - 1)), 
-                       den:length(subgroup))
-        hits = apply(sets, 2, function(x) sum(rule[x])) >= num
-        intersect(c(sets[,hits]), which(rule))
-    }
-    orange.sigma = numeric()
-    
-    p = ggplot(data = df, aes(x = subgroup)) +
-        geom_hline(yintercept = mean, col = "gray", size = 1)
-    
-    if (ucl.show) {
-        p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
-    }
-    
-    if (lcl.show) {
-        p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
-    }
-    
-    if (band.show) {
-        p = p + 
-            geom_ribbon(aes(ymin = mean + sigma, 
-                            ymax = mean + 2*sigma), alpha = 0.1) +
-            geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),  
-                            ymax = mean - sigma), alpha = 0.1)
-        
-        orange.sigma = unique(c(
-            warn.points(point > mean + sigma, 4, 5),
-            warn.points(point < mean - sigma, 4, 5),
-            warn.points(point > mean + 2*sigma, 2, 3),
-            warn.points(point < mean - 2*sigma, 2, 3)
-        ))
-    }
-
-    df$warn = "blue"
-    if (rule.show) {
-        shift.n = round(log(sum(point!=mean), 2) + 3)
-        orange = unique(c(orange.sigma,
-        warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
-        warn.points(point > mean, shift.n, shift.n),
-        warn.points(point < mean, shift.n, shift.n)))
-        df$warn[orange] = "orange"
-    }
-    df$warn[point > df$ucl | point < df$lcl] = "red"
-    
-    p + 
-        geom_line(aes(y = point), col = "royalblue3") +
-        geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
-        scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
-        labs(x = label.x, y = label.y) +
-        theme_bw()
-}
-```

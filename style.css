@@ -1,7 +1,78 @@
+h1, h2, h3, h4, h5, h6, .book-summary {
+  font-family: 'Arial', sans-serif;
+  letter-spacing: -0.02em !important;
+  margin-top: 84px;
+}
+
+h1.title {
+  font-size: 2.5em !important;
+}
+
+
+h1 span {
+  background-color: #0054D6;
+  color: white;
+  position: relative;
+}
+
+h1 span:first-child {
+  padding-left: 0.25in;
+}
+
+.header-section-number {
+  margin-right: -8px;
+}
+
+.header-section-number::after {
+  content: ' :';
+}
+
+h1 span:last-child::after {
+    top: 0;
+    position: absolute;
+    content: '';
+    background: #0054D6;
+    width: 1.45in;
+    height: 100%;
+    background-image: linear-gradient(45deg, transparent 50%, white 50.5%),
+    linear-gradient(135deg, transparent 50%, white 50.5%);
+}
+
+h2 {
+  color: #0054D6;
+}
+
+.book.font-family-0 {
+  font-family: 'Arial', serif !important;
+}
+
+.book.font-family-1 {
+  font-family: 'Arial', sans-serif !important;
+}
+
+#header .title {
+  margin-bottom: 0em;
+}
+
+#header h4.author {
+  margin: 0;
+  font-size: 1.7em;
+}
+
+#header h4.date {
+  margin: 0;
+  color: #666;
+}
+
+#header h4.author em, #header h4.date em {
+  font-style: normal;
+}
+
 p.caption {
   color: #777;
   margin-top: 10px;
 }
+
 p code {
   white-space: inherit;
 }
@@ -12,3 +83,6 @@ pre {
 pre code {
   white-space: inherit;
 }
+
+
+
