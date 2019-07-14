@@ -1,0 +1,73 @@
+---
+title: "03_EDA"
+output: pdf_document
+---
+
+# Step 1: Exploratory Data Analysis {-}
+
+It is important to understand your data. Your data is the foundation for all further analysis. You cannot create any meaningful interpretation from bad data, and not all data is suited for SPC charts. There are many tools for data exploration, and you get to decide how deep to explore. Before you start blindly coding, its important to think about your data. 
+
+**** 
+
+> Take a minute to answer the following questions: 
+> 1. What are the typical values of your data, i.e. what do you expect the range of the data to be? 
+> 2. What do you think the distribution will look like? Will it be skewed? Will there be a lot of variance? 
+
+**** 
+
+Our recommendation is to plot your data as a line chart and a histogram (adding a density overlay provides a more "objective" sense of the distribution). In these plots, consider:  
+
+1. The shape of the distribution: symmetrical/skewed, uniform/peaked/multimodal, whether changes in binwidth show patterning, etc.     
+2. Whether you see any trending, cycles, or suggestions of autocorrelation (we will discuss this more in the next step).
+3. Whether there are any obvious outliers or inliers---basically, any points deviating from the expected pattern. 
+
+R provides a lot of flexibility in plotting your data. This is certainly not the only way, but the code below is a good template for new R users. In order to use this for your data, you will want to replace the `data`, `x`, and `y` arguments and change the x and y labels using `labs`.
+
+<br>  
+
+****
+[SKP: picture with examples?]
+****
+
+Now let's explore Rachel's dataset. First, let's plot the line chart. 
+
+```{r eda_line_plot}
+ggplot(rachel_data, aes(x = months, y = infections, group = 1)) +  # all the data belongs to one group (default creates as many groups as observations)
+        geom_point() +
+        geom_line() +
+        geom_smooth(method = 'loess', formula = y ~ x) +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 90)) +
+        labs(x = 'Date', y = 'Infection Count')
+```
+
+The black points and line are simply the number of infections plotted over time. The blue trend line and grey shaded area can confuse people. The blue line is the trend line, and the shaded grey area is the confidence interval of the trend line. We can say with 95% confidence that the true, *actual* trend line falls within this grey area. The grey area is *not* a control limit. Remember this is a line chart, not a SPC chart. 
+
+
+Now onto plotting the histogram. 
+
+```{r plot_it_first_line}
+ggplot(rachel_data, aes(x = infections)) +
+  geom_histogram(aes(y = ..density..), color = "gray95", binwidth = 1) +
+  geom_density(fill = "blue", alpha = 0.3) +
+  theme_bw() +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+  labs(x = 'Infections')
+```
+
+A histogram is an excellent tool for examining the distribution of the data. In R, there are two key arguments that you need to change to explore your data: `binwidth` **_or_** `bins`. The graph above uses a bindwith equal to 1. We have discrete data, so each number gets its own bin. This is nice for this dataset because we only have seven numbers. In this case `binwidth = 1` is the same as `bins = 7`. For larger datasets, you might need to adjust the `bins` argument. R uses a default value of `bins = 30`. This parameter is completely user dependent. It is up to you to change this parameter until *you* think you have a good understanding of the distribution. 
+
+
+Now we refer back to the questions for evaluating these two plots. 
+*1. The shape of the distribution: symmetrical/skewed, uniform/peaked/multimodal, whether changes in binwidth show patterning, etc.* 
+The distribution seems mildly skewed to the right. The distribution seems slightly multimodal. Changes in binwidth do not show patterning. In general, you might want evaluation on skew, center, and variation. The distribution is centered around 3, and ranges from 0 to 6. 
+
+*2. Whether you see any trending, cycles, or suggestions of autocorrelation (we will discuss this more in the next step).*
+It does not appear to be trending up or down. There might be a cycle, not isn't consistent. {SKP: touch on autocorrelation here?}
+
+*3. Whether there are any obvious outliers or inliers---basically, any points deviating from the expected pattern.* 
+There is only one value at six, which could be an outlier, but there are no extreme values, and no points deviating from the expected pattern.
+Note that even if we suspect that point to be an outlier, it is still part of our data. We can look for an explanation for it, but we cannot remove it. We acknowledge its existence now, and remember it if it comes up during later analysis. 
+
+
+Now we will move onto the second step, checking your assumptions.

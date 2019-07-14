@@ -1,0 +1,30 @@
+---
+title: "04_Assumptions"
+output: pdf_document
+---
+
+# Step 2: Checking Assumptions {-}
+
+There are three main assumptions that must be met for a SPC chart to be meaningful. 
+
+1. We assume that the data does not contain a trend. 
+2. We assume that the data is independent. 
+3. We assume that the data is not autocorrelated. 
+
+
+## Trending
+
+In the previous step, you already completed a trend test: you looked at the line chart and decided if it was trending or not. You can tell by eye: does it look like it's trending over a large span of the time series? Then it probably is.
+
+The Mann-Kendall trend test is often used as well. It is a non-parametric test that can determine whether the series contains a monotonic trend, linear or not. We will implement this test in R below. A caveat is that when sample size is low (n < 20) this test is not useful/accurate.
+
+Because trends can be an indication of special cause variation in a stable process, standard control limits don't make sense around long-trending data, and calculation of center lines and control limits will be incorrect. **Thus, any SPC tests for special causes other than trending will *also* be invalid over long-trending data.** An alternative is to use a run chart with a median slope instead, e.g., via quantile regression (as seen in [Chapter 6](#runtrend)){SKP: update link}. 
+
+```{r}
+# Use the trend package's Mann-Kendall trend test
+trend::mk.test(mb_ts)
+```
+
+
+## Independence 
+
