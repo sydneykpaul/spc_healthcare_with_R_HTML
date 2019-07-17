@@ -1,0 +1,127 @@
+---
+title: "06_ControlChart"
+output: pdf_document
+---
+
+# Step 4: Control Chart {-}
+
+The primary distinction between run and control charts is that the latter uses parametric statistics monitor additional properties of a data-defined process. If a particular statistical distribution---such as normal, binomial, or Poisson---matches the process you wish to measure, a control chart ofers a great deal more power to find insights and monitor change than a line or run chart.  
+
+
+## What is the underlying distribution?
+
+Parametric distributions are a *useful fiction*---no data will follow an idealized distribution, but as long as it's close, the distribution properties provide useful shortcuts that allow SPC charts to work *in practice*.
+
+There are [hundreds of statistical distributions](https://en.wikipedia.org/wiki/List_of_probability_distributions), but only a handful are commonly used in SPC work:  
+
+| Data Type | Distribution | Range | Skew | Example | SPC chart |
+| --------- | ------------ | ----- | ---- | ------- | --------- |
+| *Discrete* | Binomial | 0, $N$ | Any | Bundle compliance percentage | *p*, *np* | 
+| | Poisson | 0, $\infty$ | Right | Infections per 1,000 line days | *u*, *c* | 
+| | Geometric | 0, $\infty$ | Right | Number of surgeries between complications | *g* | 
+| *Continuous* | Normal | $-\infty$, $\infty$ | None | Patient wait times | *I*, $\bar{x}$, EWMA, CUSUM | 
+| | Weibull | 0, $\infty$ | Right | Time between antibiotic doses | *t* | 
+
+
+When control charts use the mean to create the center line, they use the arithmetic mean. Rather than using the $\bar{x}$ abbreviation, these mean values are usually named for the type of chart (*u*, *p*, etc.) to emphasize the use of control limits that are *not* based on the normal distribution. The variance used to calculate the control limits differs by distribution.   
+
+So, what happens when you get the mean-variance relationship wrong?
+
+Although control charts are "robust" to some assumption violations and can sometimes work when the mean-variance relationship is incorrect, you won't know unless you explore the differences in implications between the data as-is and that same data transformed to become more in line with the appropriate or expected distribution.
+
+For example, if you use the usual normal distribution control limits (an *I* chart) on gamma-distributed data, you get something like this:  
+
+```{r skewy, echo=FALSE, fig.height=3.5}
+# Create some fake gamma-distributed process data
+set.seed(3)
+
+gamma_example = data.frame(x = seq(1:120), y = rgamma(120, shape = 3, rate = 0.8)) 
+
+ichart <- qicharts2::qic(x = x, y = y, data = gamma_example, chart = 'i', y.neg = F)
+ggMarginal(ichart, margins="y", type = "histogram", binwidth=1)
+```
+
+Clearly something is weird when very few points go below one standard deviation, and none go below two. And do the points above the upper control limit represent *real* anomalous data points, or are they the result of an improper mean-variance relationship?
+
+Using a Box-Cox transformation to make the distribution more symmetrical, we can see that those seemingly out-of-control points are actually well within both control limits, and the variation we see is more in line with (statistical) expectation.
+
+```{r unskewy, echo=FALSE, fig.height=3.5}
+# Box-Cox tansformation 
+bob = data.frame(MASS::boxcox(gamma_example$y ~ 1, lambda=seq(-10, 10, 0.05), plotit=F))
+bobmax = bob[which.max(bob[,2]),1]
+
+# Adjustment to make plotting cleaner
+gamma_example$y2 = (gamma_example$y ^ bobmax)
+
+ichart <- qicharts2::qic(x = x, y = y2, data = gamma_example, chart = 'i', y.neg = F)
+ggMarginal(ichart, margins="y", type = "histogram", binwidth=0.125)
+```
+
+The main drawback is that you now have a chart of essentially uninterptable values---but that's better than assuming a normal distribution will be just fine and inviting false positive signals, potentially wasting time and resources searching for a special cause that doesn't exist.    
+
+So should you always transform when your data doesn't meet the usual distributions common in control charts? 
+
+Not necessarily. For more information, see, for example, [The arcsine is asinine](https://esajournals.onlinelibrary.wiley.com/doi/full/10.1890/10-0340.1) and [Do not log-transform count data](https://besjournals.onlinelibrary.wiley.com/doi/10.1111/j.2041-210X.2010.00021.x). 
+
+
+**Consult a statistician if you aren't sure how to proceed.** 
+
+
+There are R packages and functions to evaluate your data and show what distribution(s) are most consistent with it. This does *not* tell you that your data does follow a given distribution, only that it's consistent with it. Further analysis is usually required; consult a statistician when you're uncertain.  
+
+As an example, we can use the gamma-distrubted data created above to show how it works.  
+
+```{r fitdist, echo=TRUE}
+library(fitdistrplus)
+expo_dist = descdist(gamma_example$y, boot = 1000)
+```
+
+A Cullen and Frey graph compares the data set (blue dot) and bootstrapped replications (orange open circles) to common theoretical distributions. For example, if the blue dot were at or near the \* symbol at the top left and more or less surrounded by the orange open circles, it would imply the data are most consistent with a normal distribution. Other common distributions are represented in the graph by points (e.g., the exponential distribution), area (e.g., the beta distribution), or by lines (e.g., the gamma distribution).  
+
+This chart shows us that our data (blue dot) and simuations from that data (orange open circles) are most consistent with a gamma distribution and a perhaps a lognormal distribution. Using `qqPlot` lets us evaluate these two options directly:    
+
+```{r qqplot, fig.width=3, fig.height=3}
+# Create objects of the two most-likely distributions
+logno = fitdistr(gamma_example$y, "lognormal")
+gammo = fitdistr(gamma_example$y, "gamma")
+
+# The car package has a good quantile-quantile plot function
+library(car)
+qqPlot(gamma_example$y, "lnorm", meanlog = logno$estimate[1], sdlog = logno$estimate[2], id=FALSE, ylab = '', layout = c(1,2))
+qqPlot(gamma_example$y, "gamma", shape = gammo$estimate[1], rate = gammo$estimate[2], id=FALSE, ylab = '', layout = c(1,2))
+```
+
+Although both distributions fall within the confidence limits (dashed lines), the points fit to a gamma distribution are closer to the line of best fit. 
+
+This is expected for this example with data we created from a gamma distribution. But in practice, when you don't know what distribution the data comes from, using this process can help you determine which distributions are most consistent with the data and plot it appropriately.  
+
+
+## Which control chart should I use?
+
+The following flow chart can help you determine which kind of control chart you might want to use. More details and formulas for each control chart type are provided in the next few chapters. {SKP: insert link}
+
+```{r which_flow, echo = FALSE, fig.align = "center"}
+knitr::include_graphics("images/control_chart_flowchart.png")
+```
+
+*** 
+Think back to Rachel's dataset. What control chart should we use for her data?
+
+*** 
+
+Let's walk through the flow chart to answer this question.
+
+*Does the data meet control chart guidelines?* Yes.
+*Size of change* We want to detect larger changes. 
+*Data type* The data is count data. 
+*Average rate* We have more than 2 occurrences per time period. 
+
+We want to use a *u* chart! The flowchart also lists common applications for each type of chart. Our decision is backed up by the chart because 'Infections per 1000 central line days' is a common reason for using a *u* control chart. 
+
+Now we can use the `qicharts2::qic` function to create the chart. This is the same exact function that we used to create the run chart in the previous chapter. The only difference is that we need to change the `chart` argument to `chart = 'u'`. The documentation for this function contains the full list of chart options. 
+
+```{r}
+qicharts2::qic(x = months, y = infections, n = linedays, data = rachel_data, multiply = 1000, chart = 'u', x.angle = 45, title = "u chart of Rachel's data", xlab = "Month", ylab = "Infection count per 1000 patient days")
+```
+
+From this chart, there does not appear to be any special cause variation. The CLABSI count is stable. In the next chapter we wil discuss interpreting run and control charts, as well as clearning up any remaining confusion on which is more appropriate to use for your data. 
