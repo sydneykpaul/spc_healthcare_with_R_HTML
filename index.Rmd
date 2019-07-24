@@ -4,10 +4,13 @@ author: "Dwight Barry, Brendan Bettinger, Andrew Cooper, and Sydney Paul"
 date: "`r format(Sys.Date(), '%B %Y')`"
 site: bookdown::bookdown_site
 
-output: bookdown::gitbook
+output: bookdown::pdf_book
 documentclass: book
-
-classoption: twoside
+# output:
+#   pdf_document:
+#       template: main.tex
+#       
+# classoption: twoside {SKP: need this?}
 fontsize: 12pt
 linestretch: 1.5
 geometry: margin=1in
@@ -15,7 +18,7 @@ geometry: margin=1in
 urlcolor: blue
 linkcolor: blue
 
-github-repo: Rmadillo/spc_healthcare
+github-repo: sydneykpaul/spc_healthcare
 description: "Using SPC methods in healthcare can be tricky. We show you how to do it correctly, using R."
 ---  
 
