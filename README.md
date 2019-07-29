@@ -1,6 +1,6 @@
 *Draft in progress*  
 
-**Statistical Process Control for Healthcare with R**, by Barry, Bettinger, and Cooper.  
+**Statistical Process Control for Healthcare with R**, by Barry, Bettinger, Cooper, and Paul.  
 
 Statistical process control (SPC) was a triumph of manufacturing analytics, and its success spread across a variety of industries---most improbably, into healthcare.
 
