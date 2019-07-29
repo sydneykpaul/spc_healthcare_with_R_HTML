@@ -1,3 +1,6 @@
+library(dplyr)
+library(tidyr)
+
 plotSPC <- function(subgroup, point, mean, sigma, k = 3,
                     ucl.show = TRUE, lcl.show = TRUE,
                     band.show = TRUE, rule.show = TRUE,

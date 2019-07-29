@@ -7,12 +7,10 @@ site: bookdown::bookdown_site
 output: bookdown::pdf_book
 documentclass: book
 # output:
-#   pdf_document:
-#       template: main.tex
-#       
-# classoption: twoside {SKP: need this?}
+#   bookdown::pdf_book:
+#     pandoc_args: ["--listings"]
+classoption: openany
 fontsize: 12pt
-linestretch: 1.5
 geometry: margin=1in
 
 urlcolor: blue
@@ -24,15 +22,10 @@ description: "Using SPC methods in healthcare can be tricky. We show you how to 
 
 ```{r setup, include=FALSE}
 # Global options
-knitr::opts_chunk$set(warning = FALSE, message = FALSE, comment = NA)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, comment = NA, highlight = TRUE, fig.height = 3.5)
 
-# This controls the margins size needed for epub
-if(!knitr:::is_html_output())
-{
-  options("width" = 56)
-  knitr::opts_chunk$set(tidy.opts=list(width.cutoff = 56, indent = 2), tidy = TRUE)
-  knitr::opts_chunk$set(fig.pos = 'H')
-}
+# options("width" = 54)
+knitr::opts_chunk$set(fig.pos = 'H')
 
 # Load libraries
 library(dplyr)
@@ -49,13 +42,10 @@ library(gridExtra)
 library(pander)
 ```
 
-# <span>Preface</span> {-}
+# Preface {-}
 
-*** 
 
-<br>
-
-## We have a problem {-}
+## We have a problem {#preface_problem}
 
 Statistical process control (SPC) was a triumph of manufacturing analytics, and its success spread across a variety of industries---most improbably, into healthcare.  
 
@@ -66,10 +56,10 @@ Unlike in manufacturing, stability is an inherently tricky concept in healthcare
 This book aims to help analysts apply SPC methods more accurately in healthcare, using the statistical software R.  
 
 
-## Common questions {-}
+## Common questions {#preface_questions}
 
 ### _Who is this book for?_ {-}
-This book is geared toward analysts working in the healthcare industry, who are already familiar with basic SPC methods and concepts. We do cover some basics, but we focus primarily on the areas that cause the most misunderstandings and misuse; {SKP: INSERT CORRECT LINK} Chapter 13, [Useful References](#useful), provides a great place to start or continue learning about SPC.
+This book is geared toward analysts working in the healthcare industry, who are already familiar with basic SPC methods and concepts. We do cover some basics, but we focus primarily on the areas that cause the most misunderstandings and misuse; The section [Useful References](#useful_resources) in the Additional Resources chapter provides a great place to start or continue learning about SPC.
 
 ### _What if I have never used R?_ {-}
 We don't presume familiarity with R, but of course everything's easier if you've used R before. 
@@ -80,32 +70,35 @@ If you haven't, here's what you need to get started:
 
 - You can download RStudio from [https://www.rstudio.com/products/rstudio/download/](https://www.rstudio.com/products/rstudio/download/).
 
-Some BI analysts are apprehensive about getting into R, but if you've ever written a line of SQL or created a formula in an Excel cell, this is no different in concept. Yes, the R language is full of idiosyncracies and outright annoyances, but when you need to accomplish particular goals, it can be fairly easy! 
+Some BI analysts are apprehensive about getting into R, but if you've ever written a line of SQL or created a formula in an Excel cell, this is no different in concept. Yes, the R language is full of idiosyncrasies and outright annoyances, but when you need to accomplish particular goals, it can be fairly easy! 
 
 For example, you can create a *u*-chart with only three lines of code!
 
 <br>
+\vspace{12pt}
 
 ```{r intro_example, fig.height=3, fig.width=6}
 # Load the qicharts package, a simple interface to SPC charts
-library(qicharts2)
+library(qicharts)
 
 # Load some example data from another R package as an example
 data(pcmanufact, package = "qcc")
 
-# You can look at the data by clicking on the spreadsheet button in the Environment tab, or by running `View(pcmanufact)` in the console
+# You can look at the data by clicking on the spreadsheet button in the
+# Environment tab, or by running `View(pcmanufact)` in the console
 
 # Create the u-chart
-qicharts::qic(y = pcmanufact$x, n = pcmanufact$size, chart = "u", main = "Easy u-chart")
+qicharts::qic(y = pcmanufact$x, n = pcmanufact$size, chart = "u",
+              main = "Easy u-chart")
 ```
 
-<br>  
+<br>
+\vspace{12pt}
 
-Another useful feature of R: you can ask for help in R using `?`, followed by the function name, e.g.,  
+Another useful feature of R: you can ask for help in R using `?`, followed by the function name, ex. `?qic`
 
-```{r help, eval=FALSE}
-?qic
-```
+<br>
+\vspace{12pt}
 
 Between the straightforward functions and the help documentation, you'll be coding in R in no time!
 
@@ -116,16 +109,18 @@ First, you'll need R and RStudio, which can be downloaded from the links above.
 
 Next, open RStudio and install the packages used in this book by copying and pasting this code into the **Console**:  
 
-{SKP: Make sure these are up-to-date by end}
 ```{r install_packs, eval=FALSE}
-install.packages("ggplot2", "forecast", "fpp2", "ggExtra", "ggseas", "gridExtra", "tidyverse", "qcc", "qicharts2", "scales", dependencies = TRUE)
+install.packages("ggplot2", "forecast", "lubridate", "fpp2", "ggExtra", 
+                 "ggseas", "gridExtra", "tidyverse", "qcc", "qicharts2",
+                 "scales", dependencies = TRUE)
 ```
+
 
 This book was created using R version 3.5.1 and RStudio 1.1.456. Code was tested on Mac OS 10.12.6 (aka Sierra).  
   
 
 
-## About {-}
+## About {#preface_about}
 
 ### _Who are we?_ {-}
 
@@ -141,5 +136,5 @@ We are all analysts at *Seattle Children's Hospital* in Seattle, Washington, USA
 
 
 ### _What if I find a typo?_ {-}
-You can submit pull requests for any errors or typos at https://github.com/Rmadillo/spc_healthcare_with_r.
+You can submit pull requests for any errors or typos at https://github.com/sydneykpaul/spc_healthcare_with_r.
 

@@ -61,14 +61,14 @@ for (i in 1:length(linedays.btwn)) {
   linedays.btwn[i] <- sum(linedays[sumover])
 }
 
-gchart_data <- tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
 
 
 ############## IMR chart ##############
 # Generate fake data
 arrival <- cumsum(rexp(24, 1/10))
 process <- rnorm(24, 5)
-exit <- matrix(nrow = length(arrival))
+exit <- matrix(nrow = length(arrival))[,1]
 exit[1] <- arrival[1] + process[1]
 
 for (i in 1:length(arrival)) {
