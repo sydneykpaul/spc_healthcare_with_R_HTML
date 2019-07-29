@@ -1,4 +1,5 @@
-*Draft in progress*  
+First version/edition/draft completed as of July 29, 2019
+Further revisions may be made
 
 **Statistical Process Control for Healthcare with R**, by Barry, Bettinger, Cooper, and Paul.  
 
