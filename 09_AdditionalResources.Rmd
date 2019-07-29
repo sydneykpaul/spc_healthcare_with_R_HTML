@@ -615,3 +615,8 @@ intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month',
     - [Weibull](https://en.wikipedia.org/wiki/Weibull_distribution)
     - [A gallery of distributions (NIST)](http://www.itl.nist.gov/div898/handbook/eda/section3/eda366.htm)
     - [Common probability distributions: the data scientist’s crib sheet (Cloudera)](http://blog.cloudera.com/blog/2015/12/common-probability-distributions-the-data-scientists-crib-sheet/)  
+  
+<br>
+\vspace{12pt}
+
+- The template used for the book can be found at https://github.com/sydneykpaul/blue-bookdown-latex-theme, and was derived from The Legrand Orange Book, which can be found here: https://www.latextemplates.com/template/the-legrand-orange-book. The photos used in this template are courtesy of https://www.pexels.com/.
