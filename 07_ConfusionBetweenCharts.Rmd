@@ -51,7 +51,7 @@ In both cases, the data points must be non-trending and independent, that is, th
 
 | Run chart | Control Chart |
 | ----------------------------------- | ------------------------------------- |
-| ![](images/example_run_chart.png) | ![](images/example_control_chart.png) |
+| ![](images/example_run_chart.png){ width=300px } | ![](images/example_control_chart.png){ width=300px } |
 | *"Astronomical" data point:* a point so different from the rest that anyone would agree that the value is unusual. | *One or more points fall outside the control limit:* if the data are distributed according to the given control chart's assumptions, the probability of seeing a point outside the control limits when the process has not changed is very low. |
 |  |  | 
 | *Process shift:* $log_2(n) + 3$ data points are all above or all below the median line, where $n$ is the total number of points that do $not$ fall directly on the median line. | *Process shift:* $log_2(n) + 3$ data points are all above or all below the mean line, where $n$ is the total number of points that do $not$ fall directly on the center line. |
