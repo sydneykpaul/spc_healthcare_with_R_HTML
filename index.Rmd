@@ -1,10 +1,10 @@
 --- 
-title: "Statistical Process Control in Healthcare with R"
-author: "Dwight Barry, Brendan Bettinger, Andrew Cooper, and Sydney Paul"
+title: "Statistical Process Control in Healthcare"
+author: "Sydney Paul, Dwight Barry, Brendan Bettinger, and Andrew Cooper"
 date: "`r format(Sys.Date(), '%B %Y')`"
 site: bookdown::bookdown_site
 
-output: bookdown::pdf_book
+output: bookdown::html_book
 documentclass: book
 # output:
 #   bookdown::pdf_book:
@@ -17,7 +17,7 @@ urlcolor: blue
 linkcolor: blue
 
 github-repo: sydneykpaul/spc_healthcare
-description: "Using SPC methods in healthcare can be tricky. We show you how to do it correctly, using R."
+description: "Using SPC methods in healthcare can be tricky. We show you how to do it correctly."
 ---  
 
 ```{r setup, include=FALSE}
@@ -61,63 +61,10 @@ This book aims to help analysts apply SPC methods more accurately in healthcare,
 ### _Who is this book for?_ {-}
 This book is geared toward analysts working in the healthcare industry, who are already familiar with basic SPC methods and concepts. We do cover some basics, but we focus primarily on the areas that cause the most misunderstandings and misuse; The section [Useful References](#useful_resources) in the Additional Resources chapter provides a great place to start or continue learning about SPC.
 
-### _What if I have never used R?_ {-}
-We don't presume familiarity with R, but of course everything's easier if you've used R before. 
-
-If you haven't, here's what you need to get started:  
-  
-- You can download R from [https://cran.r-project.org/](https://cran.r-project.org/).  
-
-- You can download RStudio from [https://www.rstudio.com/products/rstudio/download/](https://www.rstudio.com/products/rstudio/download/).
-
-Some BI analysts are apprehensive about getting into R, but if you've ever written a line of SQL or created a formula in an Excel cell, this is no different in concept. Yes, the R language is full of idiosyncrasies and outright annoyances, but when you need to accomplish particular goals, it can be fairly easy! 
-
-For example, you can create a *u*-chart with only three lines of code!
-
-<br>
-\vspace{12pt}
-
-```{r intro_example, fig.height=3, fig.width=6}
-# Load the qicharts package, a simple interface to SPC charts
-library(qicharts)
-
-# Load some example data from another R package as an example
-data(pcmanufact, package = "qcc")
-
-# You can look at the data by clicking on the spreadsheet button in the
-# Environment tab, or by running `View(pcmanufact)` in the console
-
-# Create the u-chart
-qicharts::qic(y = pcmanufact$x, n = pcmanufact$size, chart = "u",
-              main = "Easy u-chart")
-```
-
-<br>
-\vspace{12pt}
-
-Another useful feature of R: you can ask for help in R using `?`, followed by the function name, ex. `?qic`
-
-<br>
-\vspace{12pt}
-
-Between the straightforward functions and the help documentation, you'll be coding in R in no time!
 
 ### _What do I need to start?_ {-}
   
-First, you'll need R and RStudio, which can be downloaded from the links above. 
-  
-
-Next, open RStudio and install the packages used in this book by copying and pasting this code into the **Console**:  
-
-```{r install_packs, eval=FALSE}
-install.packages("ggplot2", "forecast", "lubridate", "fpp2", "ggExtra", 
-                 "ggseas", "gridExtra", "tidyverse", "qcc", "qicharts2",
-                 "scales", dependencies = TRUE)
-```
-
-
-This book was created using R version 3.5.1 and RStudio 1.1.456. Code was tested on Mac OS 10.12.6 (aka Sierra).  
-  
+OVERVIEW AND LINK TO SHINY APP.
 
 
 ## About {#preface_about}
@@ -126,15 +73,18 @@ This book was created using R version 3.5.1 and RStudio 1.1.456. Code was tested
 
 We are all analysts at *Seattle Children's Hospital* in Seattle, Washington, USA.  
 
+* Sydney Paul is a Data Science Intern in *Enterprise Analytics*.
+
 * Dwight Barry is a Principal Data Scientist in *Enterprise Analytics*. Twitter: \@healthstatsdude  
 
 * Brendan Bettinger is a Senior Analyst in *Infection Prevention*. 
 
-* Andy Cooper is a Lead Data Scientist in *Enterprise Analytics*. Twitter: \@DataSciABC
+* Andy Cooper is a Principal Data Scientist in *Enterprise Analytics*. Twitter: \@DataSciABC
 
-* Sydney Paul is a Data Science Intern in *Enterprise Analytics*.
+
 
 
 ### _What if I find a typo?_ {-}
+
 You can submit pull requests for any errors or typos at https://github.com/sydneykpaul/spc_healthcare_with_r.
 
