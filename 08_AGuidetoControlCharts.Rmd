@@ -77,7 +77,7 @@ When your metric is a true proportion (and not a rate, e.g., a count per 100), a
 
 ## *g*-chart example
 
-There are important KPIs in healthcare related to rare events, such as is common in patient safety and infection control. These commonly have 0 values for several subgroups within the process time-period. In these cases, you need to use *g*-charts for a discrete time scale (e.g., days between events) or *t*-charts for a continuous time scale (e.g., time between events).
+There are important KPIs in healthcare related to rare events, such as is common in patient safety and infection control. These often have 0 values for several subgroups within the process time-period. In these cases, you need to use *g*-charts for a discrete time scale (e.g., days between events) or *t*-charts for a continuous time scale (e.g., time between events).
 
 <br>
 
@@ -135,7 +135,11 @@ OVERVIEW HERE
 
 ## Tips and tricks for successful control chart use {#tips_tricks_controlCharts}
 
-- The definition of your control limits depends on the trade-off between sensitivity and specificity for the question at hand. Typical control charts are built on 3$\sigma$ limits, which provides a balanced trade-off between sensitivity and specificity, that is, between under- and over-alerting to an indication of special cause variation. When you need to err on the side of caution---for example, in patient safety applications---2$\sigma$ limits may be more appropriate, while understanding that false positives will be higher. If you need to err on the side of certainty, 4-6$\sigma$ limits may be more useful.
+> Statistical Process Control is not about statistics, it is not about 'process-hyphen-control', and it is not about conformance to specifications. It is about the continual improvement of processes and outcomes. And it is, first and foremost, *a way of thinking with some tools attached*. --Donald J. Wheeler, *Understanding Variation*  
+
+<br>  
+
+- The definition of your control limits depends on the trade-off between sensitivity and specificity for the question at hand. Typical control charts are built on 3$\sigma$ limits, which provides a balanced trade-off between sensitivity and specificity, that is, between under- and over-alerting to an indication of special cause variation. When you need to err on the side of caution---for example, in patient safety applications---2$\sigma$ limits may be more appropriate, while understanding that false positives will be higher. If you need to err on the side of certainty, 4-6$\sigma$ limits may be more useful, but you should expect that false negatives will more likely occur.
 
 <br>
 
@@ -147,7 +151,7 @@ OVERVIEW HERE
 
 <br>
 
-- For raw ordinal data (such as likert scores), do not use means or control limits. Just. Don't. If you must plot a single value, convert to a proportion (e.g., "top box scores") first. However, stacked bar or mosaic charts help visualize this kind of data much better, and can be done in the same amount of space.      
+- For raw ordinal data (such as likert scores), do not use means or control limits. Just. Don't. If you must plot a single value, convert to a proportion (e.g., "top box scores") first. However, stacked bar or mosaic charts help visualize this kind of data more clearly.      
 
 <br>
 
@@ -155,19 +159,19 @@ OVERVIEW HERE
 
 <br>
 
-- YTD comparisons don't work because they encourage naive, point-to-point comparisons and ignore natural variation---and can encourage inappropriate knee-jerk reactions. There is never useful information about a process in only one or two data points.    
+- YTD and YOY comparisons don't work because they encourage naive, point-to-point comparisons and ignore natural variation---and can encourage inappropriate knee-jerk reactions. There is never useful information about a process in only one or two data points.    
 
 <br>
 
-- "Stoplight" indicators (red/yellow/green) are similarly ineffective and potentially harmful for decision-making. 
+- "Stoplight" indicators (red/yellow/green) are similarly ineffective and potentially harmful for decision-making because, like YTD or YOY data, they completely obscure natural variation. 
 
 <br>
 
-- A control chart should measure one defined process, so you may need to create multiple charts stratified by patient population, unit, medical service, time of day, etc. to avoid mixtures of processes.       
+- A control chart should measure a single, well-defined, stable process, so you may need to create multiple charts stratified by patient population, unit, medical service, time of day, etc. to avoid mixtures of processes.       
 
 <br>
 
-- With very large sample or subgroup sizes, control limits will be too small, and the false positive rate will skyrocket.
+- With very large sample or subgroup sizes, control limits will be too small, and the false positive rate will skyrocket. Prime charts can be used instead. 
 
 
 ### When to revise control limits
@@ -184,13 +188,13 @@ Say that an intervention happened at the start of year 3, but there was a lag be
 <br>
 
 
-Of course, the change point can be placed arbitrarily in a `qic` graph---with corresponding changes in control limits. For example, using the same data as above, compare those results with those when the change point is moved forward by 2, 4, or 6 time steps (pretending we don't actually know when the process truly changed):
+Of course, the change point can be placed arbitrarily---with corresponding changes in control limits. For example, using the same data as above, compare those results with those when the change point is moved forward by 2, 4, or 6 time steps (pretending we don't actually know when the process truly changed):
 
 <br>
 
 As you can see, the conclusions you could draw from a single control chart might be different depending on when the breakpoint is set.  
 
-Use common sense and avoid the urge to change medians or means and control limits for every intervention unless evidence is clear that it worked.
+Use common sense and avoid the urge to change medians or means and control limits for every intervention unless the evidence is clear that it worked, and that the process had been previously stable, exhibiting only common cause variation. 
 
 SPC charts are blunt instruments, and are meant to try to detect changes in a process as simply as possible. When there is no clear evidence in SPC charts for a change, more advanced techniques---such as ARIMA models or intervention/changepoint analysis---can be used to assess whether there was a change in the statistical process at or near the intervention point.  
 
