@@ -1,0 +1,40 @@
+---
+title: "05_RunChart"
+output: pdf_document
+---
+
+# Run Chart {#run_chart}
+
+The next tab will plot a run chart for your data. If you are comparing across categories, then it will plot a run chart for each category. We can see the run charts for our example CLABSI data in the figure below. It is important to always inspect your run chart before jumping straight to a control chart. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="A run chart for each department"}
+knitr::include_graphics("step4_run_chart.png")
+```
+
+Run charts are designed to show a metric of interest over time. They do not rely on parametric statistical theory, so they cannot distinguish between common cause and special cause variation. Control charts can be more powerful when properly constructed, but run charts are easier to implement where statistical knowledge is limited and still provide practical monitoring and useful insights into the process.
+
+Run charts typically employ the median for the reference line. Run charts help you determine whether there are unusual runs in the data, which suggest non-random variation. They tend to be better than control charts in trying to detect moderate (~$\pm$ 1.5$\sigma$) changes in process than using the control charts' typical $\pm$ 3$\sigma$ limits rule alone. 
+
+*In other words, a run chart can be more useful than a control chart when trying to detect improvement while that improvement work is still going on.*
+
+There are two basic "tests" for run charts (an astronomical data point or looking for cycles aren't tests *per se*):  
+
+- *Process shift:* A non-random run is a set of $log_2(n) + 3$ consecutive data points (rounded to the nearest integer) that are all above or all below the median line, where *n* is the number of points that do *not* fall directly on the median line. For example, if there are 34 points and 2 fall on the median, then $n = 32$ observations.Plugging this value into the equation: $log_2(32) + 3 = 5 + 3 = 8$. So, in this case, the longest run should be no more than 8 points.
+
+- *Number of crossings:* Too many or too few median line crossings suggest a pattern inconsistent with natural variation. You can use the binomial distribution (`qbinom(0.05, n-1, 0.50)` in R for a 5% false positive rate and expected proportion 50% of values on each side of the median) or a table (e.g., [Table 1 in Anhøj & Olesen 2014](http://journals.plos.org/plosone/article?id=10.1371/journal.pone.0113825#pone-0113825-t001)) to find the minimum number of expected crossings.
+
+Note: this table also has pre-calculated values for longest run too. 
+
+First we will evaluate the Acute Care run chart. There aren't any astronomically different unusual points. We know we have 98 observations for this department. We can see that there are no values that fall directly on the median line. There are points that are close, but we can hover over the suspicious points to see their exact value. Thus out of all 98 observations all of them are useful, and $n = 98$.
+
+To test for process shift, we can use our equation $log_2(98) + 3 = 6.615 + 3 = 9.615 -> rounded-> 10$. So our longest run should be no more than 10 consecutive points that are all above or all below the median line. We could have also used the table, which confirms 10 as our longest allowed run. From the run chart, we can see that our longest run is 6, so we pass this test. 
+
+To test the number of crossings, we can either use a binomial distribution or the look-up table provided in the link above. Using our statistical software, we can see that $qbinom(0.05, 98 - 1, 0.50) = 40$. Thus we want at least 40 crossings in order to pass this test. The table confirm this threshold as well. We can see from the run chart that we have 43 crossings and thus pass this test too. 
+
+Next we will evaluate the Critical Care run chart, which has 54 observations. None of these observations fall on the median line, so $n = 54$. There are also no astronomical, obviously unusual, points. 
+
+To test for process shift, we can use our equation $log_2(54) + 3 = 5.755 + 3 = 8.755 -> rounded-> 9$. So our longest run should be no more than 9 consecutive points that are all above or all below the median line. The table confirms 9 as our longest allowed run. From the run chart, we can see that our longest run is 5, so we pass this test.
+
+To test the number of crossings, we can either use a binomial distribution or the look-up table provided in the link above. Using our statistical software, we can see that $qbinom(0.05, 54 - 1, 0.50) = 21$. Thus we want at least 21 crossings in order to pass this test. The table confirm this threshold as well. We can see from the run chart that we have 31 crossings and thus pass this test too. 
+
+We can conclude that there is not any non-random variation suggested in either run chart. Now we can proceed with our control chart. One note, however, on the plot itself. You may have noticed that the output used by the application is a plotly graph, which is interactive. You may click and drag on a region to zoom-in on it. Double clicking the mouse will reset the view. You may over over points to see a tool tip with more information. There is a panel in the upper-right-hand corner of the graph which contains even more user controls, including the ability to save the image as a `.png` file. This plotting tool will be the same used for plotting our control charts in the next section. 

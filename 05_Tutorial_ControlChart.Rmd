@@ -1,0 +1,75 @@
+---
+title: "06_ControlChart"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Control Chart {#control_chart}
+
+The primary distinction between run and control charts is that the latter uses parametric statistics monitor additional properties of a data-defined process. If a particular statistical distribution---such as normal, binomial, or Poisson---matches the process you wish to measure, a control chart offers a great deal more power to find insights and monitor change than a line or run chart. Parametric distributions are a *useful fiction*---no data will follow an idealized distribution, but as long as it's close, the distribution properties provide useful shortcuts that allow SPC charts to work *in practice*.
+
+There are [hundreds of statistical distributions](https://en.wikipedia.org/wiki/List_of_probability_distributions), but only a handful are commonly used in SPC work:  
+
+| Data Type | Distribution | Range | Skew | Example | SPC chart |
+| --------- | ------------ | ----- | ---- | ------- | --------- |
+| *Discrete* | Binomial | 0, $N$ | Any | Bundle compliance percentage | *p*, *np* | 
+| | Poisson | 0, $\infty$ | Right | Infections per 1,000 line days | *u*, *c* | 
+| | Geometric | 0, $\infty$ | Right | Number of surgeries between complications | *g* | 
+| *Continuous* | Normal | $-\infty$, $\infty$ | None | Patient wait times | *I*, $\bar{x}$, EWMA, CUSUM | 
+| | Weibull | 0, $\infty$ | Right | Time between antibiotic doses | *t* | 
+
+When control charts use the mean to create the center line, they use the arithmetic mean. Rather than using the $\bar{x}$ abbreviation, these mean values are usually named for the type of chart (*u*, *p*, etc.) to emphasize the use of control limits that are *not* based on the normal distribution. The variance used to calculate the control limits differs by distribution.   
+
+The first decision that you must make is the correct control chart for your data. The first thing on this section of the application is a handy flow chart to help you make that decision. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Which control chart should I use?"}
+knitr::include_graphics("control_chart_flowchart.png")
+```
+
+We will walk through the flow chart to answer this question for our example CLABSI data.
+
+*Does the data meet control chart guidelines?* Yes.
+*Size of change* We want to detect larger changes. 
+*Data type* The data is count data. 
+*Average rate* We have more than 2 occurrences per time period. 
+
+We want to use a *u* chart! The flowchart also lists common applications for each type of chart. Our decision is backed up by the chart because 'Infections per 1000 central line days' is a common reason for using a *u* control chart. 
+
+Next we can scroll down to see a left-side panel with user options and inputs, the right-side panel is initially blank. The first option to select on the left panel is "Choose your control chart". Find the chart that you chose using the flowchart and select it. This will create your control chart on the right-side panel. We have chosen to use a u-chart for our example CLABSI data which can be seen in the figure below. Once again, each department has its own control chart for comparison. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="u-charts for CLABSI data by department"}
+knitr::include_graphics("step5_control_chart.png")
+```
+
+The next option on the left-side panel is a check box that asks "Do you want to break the x-axis?". To break the axis means to set a point in which different control limits are calculated before and after. This can be a column in your data containing time groupings, like "pre-implementation" and "post-implementation" *or* you can select "Choose date on calendar". In the figure below, we have checked the box to break the x-axis. Then we selected Choose date on calendar". Using the calendar that pops up, we selected June 17th, 2004. If you look at this date on the control charts, you can see where the axis was broken. The change in control limits at that date is more noticeably for Critical Care than for Acute Care. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="u-charts for CLABSI data by department"}
+knitr::include_graphics("step5_break_axis.png")
+```
+
+The next option is a check box labelled "Data has already been grouped". Below this is a drop down box containing various time aggregates. If the data has already been group, then you can use the drop down to select how it is being group. If you wish to change the aggregation of the data, then you can *uncheck* this box. This changes the drop-down box to "The data needs to be subgrouped by:" where you can select your desired aggregation. The example CLABSI data was already aggregated by month, so we cannot go backwards into weeks or days. However, we can view the data aggregated by quarters instead.
+
+```{r echo=FALSE, fig.align='center', fig.cap="u-charts for CLABSI data aggregated by quarter"}
+knitr::include_graphics("step5_agg_quarter.png")
+```
+
+Be careful that you do not render your data useless by aggregation. When you aggregate, you lose information, and if you do not have enough observations you may miss what your data is trying to say. An example of too much aggregation is our same example CLABSI data aggregated by year. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="u-charts for CLABSI data aggregated by year"}
+knitr::include_graphics("step5_agg_year.png")
+```
+
+Moving down the left-side panel, the next thing we see is the "Overdispersion test for u-chart and p-chart". This only applies to these two charts. If overdispersion is a problem, which will be indicated in red text, then you should use prime charts instead, i.e. a u' chart instead of u chart and p' chart instead of p chart. These are both available in the "Choose your control chart" drop-down box.
+
+The final set of options are called "Advanced Plot Options" and are completely optional. Here you can prevent the y-axis from being negative (depending on your use-case) by unchecking the box. You can enter your own custom labels for the axes by checking the corresponding boxes and simply typing your desired labels. If you have a benchmark value or target value, you can check those corresponding boxes and simply enter the desired numbers. Finally, if you wish to annotate you plot you can check the box labelled "I want to annotate specific points". This feature is only available for single plots (not comparing across groups like we did in the CLABSI example). A table of all your data will appear below your control chart. Simply double-click into the "annotations" column at the row you wish to annotate. Type in your annotation. When finished, use Ctrl and Enter simultaneously to finish editing the text box. Your annotation will appear as a number, with the text appearing when hovered over. 
+
+An example of these features in use can be seen below. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="u-chart for full dataset with advanced plot options"}
+knitr::include_graphics("step5_advanced_plot_options.png")
+```
+
+Custom axes labels have been specified. A benchmark value has been set at 3.5, and a target value set at 2.5. These appear on the graph as dashed lines (grey and navy respectively) and have their own legend. Finally three annotations have been added using the table below. On the graph these appear as "1", "2", and "3" with vertical lines to the point they belong to. When you hover over each annotation number, you can see the full text. 
+
+At the very bottom are two options. You can either choose to start the application over with a new file, or you may quit and close the application. This ends the tutorial on using the accompanying SPC Shiny App. Over the next few chapters we will delve deeper into control charts and how to interpret them. 

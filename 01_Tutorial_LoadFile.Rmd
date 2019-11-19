@@ -1,0 +1,31 @@
+---
+title: "01_TutorialLoadFile"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Step 1: Load your file {-}
+
+Over the next few chapters we will walk you through using the accompanying SPC R shiny application to create SPC charts. The first step is to load your data. When you first launch the application, you are greeted with the following screen. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="The landing page of the SPC Shiny App"}
+knitr::include_graphics("step1_load_file.png")
+```
+
+On the left-side panel there are several options for customizing your file import. The first is the file type. Valid file types are `.xlsx`, `.xls`, `.csv`, or `.txt`, just select the corresponding radio button. Next, you can specify whether your file contains a header or not, i.e. column names. Finally, there are two options for customizing a `.csv` or `.txt` import: separator and quote. Just as CSV stands for comma-separated values, there are other commonly used separators like semicolon or tab. The quote option tells the application how to handle quotes in the data using a single character.
+
+Once you have set your desired options, you may click the `Browse` button to find your file. You can select a single file and click "Open" like any file dialog box. If your data has been divided across several files, you may hold the "Ctrl" button and select them all. This will stack the files on top of each other, so ensure that the column names are identical if using this method. 
+
+Once you have loaded your data, a preview will appear on the right half of the application. You may filter by column or use the Previous and Next buttons to search through the data. Once you are comfortable that it has loaded the data correctly, you may hit the "Continue" button to move to the next step. 
+
+In this tutorial we will use a simulated CLABSI (central line associated blood stream infection) dataset. The following image is the application after loading this dataset. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Data has been successfully loaded into SPC Shiny App"}
+knitr::include_graphics("step1_successfully_loaded.png")
+```
+
+Next, we will walk you through exploring your data. 
+
+
+

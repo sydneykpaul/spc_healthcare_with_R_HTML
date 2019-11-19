@@ -1,0 +1,31 @@
+---
+title: "02_TutorialParameters"
+output: pdf_document
+---
+
+#  Step 2: Set your parameters {#parameters}
+
+The next step allows you to set your desired parameters for creating your SPC charts. The tab should look like the following:
+
+```{r echo=FALSE, fig.align='center', fig.cap="Application page to set your parameters"}
+knitr::include_graphics("step2_set_parameters.png")
+```
+
+The left-side panel contains all the options you will need. The first is the desired multiplier. In a hospital context, this is often "per how many patient days". The default option is 1000, so make sure to select 1 if you do not wish to have a multiplier. 
+
+The next three drop down menus are populated with the column names of your data. You must match the desired column with its desired purpose. For SPC charts you have a a date column or subgroups (values to plot along the x-axis), and a value column (measures or counts to plot along the y-axis). In some cases you may have a column of subgroup sizes. If this is not applicable to your use-case, then simple leave the "Denominator (subgroup sizes)" as "SELECT" and it will not be used. 
+
+The final option on the left-side panel is a check box that says "Check this box if you want to compare your data based on a qualitative grouping column, ex. departments". If this is applicable to your data, you may check this box. This will create another drop-down box populated with your data's column's names. Select the column that you wish to compare across like you did in the previous drop-down menus. 
+
+We have set the following parameters for our example CLABSI data:
+
+```{r echo=FALSE, fig.align='center', fig.cap="Parameters are set for example CLABSI data"}
+knitr::include_graphics("step2_successfully_set_parameters.png")
+```
+
+We want to use 1000 for our multiplier so that the data is represented in per 1000 patient days. For the date (x-axis) we will use the column named "date". For the numerator (y-axis) we will use the counts of CLABSI events in the column named "clabsi_count". For CLABSI events, we do have subgroup size data. So, for the denominator drop-down we select the column named "central_line_days". 
+
+Finally, we have decided that we want to compare the CLABSI rates across departments. We have a single column named "department" which contains the department where the CLABSI events occurred.
+
+After you are satisfied with your parameters, you may click the "Continue" button to proceed with the analysis. 
+
