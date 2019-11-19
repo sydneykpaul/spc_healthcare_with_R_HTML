@@ -1,0 +1,141 @@
+---
+title: "03_Tutorial_EDA_Assumptions"
+output: pdf_document
+---
+
+#  Step 2: Exploratory Data Analysis and Checking Assumptions {#eda_assumptions}
+
+## Exploratory Data Analysis
+
+It is important to understand your data. Your data is the foundation for all further analysis. You cannot create any meaningful interpretation from bad data, and not all data is suited for SPC charts. There are many tools for data exploration, and you get to decide how deep to explore. Before you start blindly exploring, its important to think about your data. 
+
+Take a minute to answer the following questions: 
+
+1. What are the typical values of your data, i.e. what do you expect the range of the data to be? 2. What do you think the distribution will look like? Will it be skewed? Will there be a lot of variance?
+
+This tab of the application contains a lot of important information. We have broken this information into four easily digestible sections. There will be a control or important text on the left-side panel, with a corresponding graph on the right-side panel.
+
+<br> 
+
+The first section is the area highlighted in blue. The blue section shows a plot your data as a line chart and a histogram (adding a density overlay provides a more "objective" sense of the distribution).
+
+```{r echo=FALSE, fig.align='center', fig.cap="Exploring the distributions of your data"}
+knitr::include_graphics("step3_distributions.png")
+```
+
+In these plots, consider:  
+
+1. The shape of the distribution: symmetrical/skewed, uniform/peaked/multimodal, whether changes in binwidth show patterning, etc.     
+2. Whether you see any trending, cycles, or suggestions of autocorrelation (we will discuss this more in the next step).
+3. Whether there are any obvious outliers or inliers---basically, any points deviating from the expected pattern. 
+
+The black points and line are simply the number of infections plotted over time. The blue line is the trend line, and the shaded grey area is the confidence interval of the trend line. We can say with 95% confidence that the true, *actual* trend line falls within this grey area. The grey area is *not* a control limit. Remember this is a line chart, not a SPC chart. 
+
+A histogram is an excellent tool for examining the distribution of the data. In R, there are two key arguments that you need to change to explore your data: `binwidth` **_or_** `bins`. You can control either by using the slider on the left-side panel. The default slider is controlling the number of bins, but you can select the check box to control the binwidth instead. This parameter is completely user dependent. It is up to you to change this parameter until *you* think you have a good understanding of the distribution. 
+
+Notice for our CLABSI example we have two line plots and two histograms. This is because we are comparing across departments of which we only have two, Acute Care and Critical Care. If we had four departments, we would have four of each graph. If you are not comparing across a column, then you should see only one line graph and one histogram. 
+
+Now we will refer back to the questions for evaluating are example plots.
+
+```{r echo=FALSE, fig.align='center', fig.cap="Graphs for CLABSI example data"}
+knitr::include_graphics("step3_distributions_zoomed.png")
+```
+
+*1. The shape of the distribution: symmetrical/skewed, uniform/peaked/multimodal, whether changes in binwidth show patterning, etc.* 
+Both histograms seem slightly skewed to the left. This makes sense because we would expect most CLABSI counts to be low with a few higher counts creating a tail, and we cannot have a negative count. The distribution does not appear to be multimodal or have any patterning. 
+
+*2. Whether you see any trending, cycles, or suggestions of autocorrelation (we will discuss this more in the next step).*
+Both line graphs appear to be trending downward, with Critical Care being more linear than Acute Care. 
+
+*3. Whether there are any obvious outliers or inliers---basically, any points deviating from the expected pattern.* 
+There are no outliers in Acute Care. The two points greater than 15 in Critical Care could be outliers, but they do not appear to be extreme. Note that even if we suspect that point to be an outlier, it is still part of our data. We can look for an explanation for it, but we cannot remove it. We acknowledge its existence now, and remember it if it comes up during later analysis. 
+
+Now we will move onto the next step, checking your assumptions.
+
+<br>
+
+## Checking Assumptions
+
+There are three main assumptions that must be met for a SPC chart to be meaningful. 
+
+1. We assume that the data does not contain a trend. 
+2. We assume that the data is independent. 
+3. We assume that the data is not autocorrelated. 
+
+To determine if the first assumption is met, we should look to the areas highlighted in green. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Determining if your data is trending"}
+knitr::include_graphics("step3_distributions.png")
+```
+
+In the previous step, you already completed a trend test: you looked at the line chart on the right-side panel and decided if it was trending or not. You can tell by eye: does it look like it's trending over a large span of the time series? If so, then it probably is trending.
+
+The Mann-Kendall trend test is often used as well. It is a non-parametric test that can determine whether the series contains a monotonic trend, linear or not. The null hypothesis being tested is that the data does not contain a trend. A caveat is that when sample size is low (n < 20) this test is not useful/accurate.
+
+The Mann-Kendall trend test has been run for you and the results are shown on the left-side panel. For our example CLABSI data was can see the following: 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Mann-Kendall test for each department"}
+knitr::include_graphics("step3_mann_kendall.png")
+```
+
+The Acute Care department passes the trend test at 5%. This means that its p-value (0.006) is less than 0.05. The Critical Care department fails the trend test at 5% because its p-value is 0.08. This is where some flexibility can come into play. This p-value is not that far away from 5%. In fact, another commonly used level for evaluating p-values is the 10% threshold, in which case both would have passed the trend test. Because trends can be an indication of special cause variation in a stable process, standard control limits don't make sense around long-trending data, and calculation of center lines and control limits will be incorrect. **Thus, any SPC tests for special causes other than trending will *also* be invalid over long-trending data.** For the purposes of this example, we will proceed with the analysis. 
+
+If the data does have a trend, then a an alternative is to use a run chart with a median slope instead, e.g., via quantile regression. You can generally wait until the process has settled to a new, stable mean and reset the central line accordingly. For a sustained or continuous trend, you can difference the data (create a new dataset by subtracting the value at time *t* from the value at time *t+1*) to remove the trend or use regression residuals to show deviations from the trend.
+
+However, either approach can make the run chart harder to interpret. Perhaps a better idea is use quantile regression to obtain the median line, which allows you to keep the data on the original scale. 
+
+The second and third assumptions pertain to independence and autocorrelation. Information about these can be found in the orange shaded regions on the application. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Determining if your data is independent or autocorrelated"}
+knitr::include_graphics("step3_autocorrelation.png")
+```
+
+Independence and autocorrelation are two important, related terms. 
+
+Independence generally means that the value of the data will not change due to other variables or previous data points, ex. rolling a fair die and flipping a coin. The value that the die lands on should not be affected by the coin flip nor the previous value of the die. 
+
+Correlation is the tendency for one variable to increase or decrease as a different variable increases. Autocorrelation is a variable that correlates with itself lagged or leading in time, ex. if it rained yesterday, it will be more likely to rain today. If variables are independent, then they do not have any correlation.
+
+For either run charts or control charts, the data points must be independent for the guidelines to be effective. The first test of that is conceptual---do you expect that one value in this series will influence a subsequent value? For example, the incidence of some hospital-acquired infections can be the result of previous infections. Suppose one happens at the end of March and another happens at the start of April in the same unit, caused by the same organism---you might suspect that the monthly values would not be independent.
+
+After considering the context, a second way to assess independence is by calculating the autocorrelation function (acf) for the time series. The ACF for the example CLABSI data can be seen below. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="ACF plot for Acute Care unit"}
+knitr::include_graphics("step3_autocorrelation_zoomed_AC.png")
+```
+
+Note that this plot is for just the Acute Care department. There is a drop-down box that contains the names of the other categories in your column you are comparing across. In our example, we can view the ACF plots for both the Acute Care and Critical Care departments.  
+
+The `acf` function provides a graphical summary of the autocorrelation function, with each data point correlated with a value at increasing lagged distances from itself. Each correlation is plotted as a spike; spikes that go above or below the dashed line suggest that significant positive or negative autocorrelation, respectively, occurs at that lag (at the 95% confidence level). 
+
+If all spikes occur inside those limits, it's safe to assume that there is no autocorrelation. If only one or perhaps two spikes exceed the limits slightly, it could be due simply to chance. Clear patterns seen in the acf plot can indicate autocorrelation even when the values do not exceed the limits. 
+
+Autocorrelation values over 0.50 generally indicate problems, as do patterns in the autocorrelation function. However, *any* significant autocorrelation should be considered carefully relative to the cost of potential false positive or false negative signals. Autocorrelation means that the run chart and control chart interpretation guidelines will be wrong.
+
+For control charts, autocorrelated data will result in control limits that are too small. Data with seasonality (predictable up-and-down patterns) or cycles (irregular up-and-down patterns) will have control limits that are too large. There are diagnostic plots and patterns that help identify each, but the best test is "what does it look like?" If the trend seems to be going up and down, and the control limits don't, it's probably wrong.
+
+When data are autocorrelated, control limits will be *too small*---and thus an increase in *false* signals of special causes should be expected. In addition, none of the tests for special cause variation remain valid.    
+
+Sometimes, autocorrelation can be removed by changing the sampling or metric's time step: for example, you generally wouldn't expect hospital acquired infection rates in one quarter to influence those in the subsequent quarter.  
+
+It can also be sometimes removed or abated with differencing, although doing so hurts interpretability of the resulting run or control chart.  
+
+If have autocorrelated data, and you aren't willing to difference the data or can't change the sampling rate or time step, you shouldn't use either run or control charts, and instead use a standard line chart. If you must have limits to help guide decision-making, you'll need a more advanced technique, such as a Generalized Additive Mixed Model (GAMM) or time series models such as ARIMA. It's probably best to work with a statistician if you need to do this.    
+
+Back to our example in the plot above, we can see that the Acute Care ACF plot about has no problems with autocorrelation. The ACF plot for the Critical Care department is shown below. When comparing across several categories, it is important to check the individual plot for each category.
+
+```{r echo=FALSE, fig.align='center', fig.cap="ACF plot for Critical Care unit"}
+knitr::include_graphics("step3_autocorrelation_zoomed_CC.png")
+```
+
+There are no peaks or patterns in the spectrum plots. One blue line slightly crosses the dashed line, however, this is a good example of something that might reasonably happen by random chance. 
+
+We can conclude that both our departments do not have a problem with autocorrelation. 
+
+Finally, we can move on to the last important region on the application, shaded in red. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Required checkboxes to proceed with analysis"}
+knitr::include_graphics("step3_evaluate_checkboxes.png")
+```
+
+It is tempting to speed to the end and get your chart. However, it is very important that these assumptions are met, and that you have explored your data and determined that it is suitable for a SPC chart. On the left-side panel, there are three key checkboxes that serve as a pseudo-contract with the user. You must acknowledge that run chart interpretation will be wrong or misleading unless each condition has been met. Once you check all three boxes, you will be able to click the "Continue" button on the right-side panel to move on with the analysis. The Continue button will be locked until all three boxes have been checked. 

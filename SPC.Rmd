@@ -1,0 +1,3875 @@
+--- 
+title: "Statistical Process Control in Healthcare"
+author: "Sydney Paul, Dwight Barry, Brendan Bettinger, and Andrew Cooper"
+date: "`r format(Sys.Date(), '%B %Y')`"
+site: bookdown::bookdown_site
+
+output: bookdown::html_book
+documentclass: book
+# output:
+#   bookdown::pdf_book:
+#     pandoc_args: ["--listings"]
+classoption: openany
+fontsize: 12pt
+geometry: margin=1in
+
+urlcolor: blue
+linkcolor: blue
+
+github-repo: sydneykpaul/spc_healthcare
+description: "Using SPC methods in healthcare can be tricky. We show you how to do it correctly."
+---  
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+
+```{r setup, include=FALSE}
+# Global options
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, comment = NA, highlight = TRUE, fig.height = 3.5)
+
+# options("width" = 54)
+knitr::opts_chunk$set(fig.pos = 'H')
+
+# Load libraries
+library(dplyr)
+library(scales)
+library(lubridate)
+library(forecast) 
+library(ggseas)
+library(qicharts2)
+library(bookdown)
+library(knitr)
+library(ggplot2)
+library(ggExtra)
+library(gridExtra)
+library(pander)
+```
+
+# Preface {-}
+
+
+## We have a problem {#preface_problem}
+
+Statistical process control (SPC) was a triumph of manufacturing analytics, and its success spread across a variety of industries---most improbably, into healthcare.  
+
+Healthcare is rarely compatible with the idea of an assembly line, but lean manufacturing thinking ("Lean") has taken over healthcare management around the world, and SPC methods are common tools in Lean.  
+
+Unlike in manufacturing, stability is an inherently tricky concept in healthcare, so this has led to much *misuse* of these methods. Bad methods lead to bad inferences, and bad inferences can lead to poor decisions.  
+
+This book aims to help analysts apply SPC methods more accurately in healthcare, using the statistical software R.  
+
+
+## Common questions {#preface_questions}
+
+### _Who is this book for?_ {-}
+This book is geared toward analysts working in the healthcare industry, who are already familiar with basic SPC methods and concepts. We do cover some basics, but we focus primarily on the areas that cause the most misunderstandings and misuse; The section [Useful References](#useful_resources) in the Additional Resources chapter provides a great place to start or continue learning about SPC.
+
+
+### _What do I need to start?_ {-}
+  
+OVERVIEW AND LINK TO SHINY APP.
+
+
+## About {#preface_about}
+
+### _Who are we?_ {-}
+
+We are all analysts at *Seattle Children's Hospital* in Seattle, Washington, USA.  
+
+* Sydney Paul is a Data Science Intern in *Enterprise Analytics*.
+
+* Dwight Barry is a Principal Data Scientist in *Enterprise Analytics*. Twitter: \@healthstatsdude  
+
+* Brendan Bettinger is a Senior Analyst in *Infection Prevention*. 
+
+* Andy Cooper is a Principal Data Scientist in *Enterprise Analytics*. Twitter: \@DataSciABC
+
+
+
+
+### _What if I find a typo?_ {-}
+
+You can submit pull requests for any errors or typos at https://github.com/sydneykpaul/spc_healthcare_with_r.
+
+
+<!--chapter:end:index.Rmd-->
+
+---
+title: "01_TutorialLoadFile"
+output:
+  html_document:
+    df_print: paged
+---
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+
+# Step 1: Load your file {-}
+
+Over the next few chapters we will walk you through using the accompanying SPC R shiny application to create SPC charts. The first step is to load your data. When you first launch the application, you are greeted with the following screen. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="The landing page of the SPC Shiny App"}
+knitr::include_graphics("step1_load_file.png")
+```
+
+On the left-side panel there are several options for customizing your file import. The first is the file type. Valid file types are `.xlsx`, `.xls`, `.csv`, or `.txt`, just select the corresponding radio button. Next, you can specify whether your file contains a header or not, i.e. column names. Finally, there are two options for customizing a `.csv` or `.txt` import: separator and quote. Just as CSV stands for comma-separated values, there are other commonly used separators like semicolon or tab. The quote option tells the application how to handle quotes in the data using a single character.
+
+Once you have set your desired options, you may click the `Browse` button to find your file. You can select a single file and click "Open" like any file dialog box. If your data has been divided across several files, you may hold the "Ctrl" button and select them all. This will stack the files on top of each other, so ensure that the column names are identical if using this method. 
+
+Once you have loaded your data, a preview will appear on the right half of the application. You may filter by column or use the Previous and Next buttons to search through the data. Once you are comfortable that it has loaded the data correctly, you may hit the "Continue" button to move to the next step. 
+
+In this tutorial we will use a simulated CLABSI (central line associated blood stream infection) dataset. The following image is the application after loading this dataset. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Data has been successfully loaded into SPC Shiny App"}
+knitr::include_graphics("step1_successfully_loaded.png")
+```
+
+Next, we will walk you through exploring your data. 
+
+
+
+
+<!--chapter:end:01_Tutorial_LoadFile.Rmd-->
+
+---
+title: "02_TutorialParameters"
+output: pdf_document
+---
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+
+#  Step 2: Set your parameters {#parameters}
+
+The next step allows you to set your desired parameters for creating your SPC charts. The tab should look like the following:
+
+```{r echo=FALSE, fig.align='center', fig.cap="Application page to set your parameters"}
+knitr::include_graphics("step2_set_parameters.png")
+```
+
+The left-side panel contains all the options you will need. The first is the desired multiplier. In a hospital context, this is often "per how many patient days". The default option is 1000, so make sure to select 1 if you do not wish to have a multiplier. 
+
+The next three drop down menus are populated with the column names of your data. You must match the desired column with its desired purpose. For SPC charts you have a a date column or subgroups (values to plot along the x-axis), and a value column (measures or counts to plot along the y-axis). In some cases you may have a column of subgroup sizes. If this is not applicable to your use-case, then simple leave the "Denominator (subgroup sizes)" as "SELECT" and it will not be used. 
+
+The final option on the left-side panel is a check box that says "Check this box if you want to compare your data based on a qualitative grouping column, ex. departments". If this is applicable to your data, you may check this box. This will create another drop-down box populated with your data's column's names. Select the column that you wish to compare across like you did in the previous drop-down menus. 
+
+We have set the following parameters for our example CLABSI data:
+
+```{r echo=FALSE, fig.align='center', fig.cap="Parameters are set for example CLABSI data"}
+knitr::include_graphics("step2_successfully_set_parameters.png")
+```
+
+We want to use 1000 for our multiplier so that the data is represented in per 1000 patient days. For the date (x-axis) we will use the column named "date". For the numerator (y-axis) we will use the counts of CLABSI events in the column named "clabsi_count". For CLABSI events, we do have subgroup size data. So, for the denominator drop-down we select the column named "central_line_days". 
+
+Finally, we have decided that we want to compare the CLABSI rates across departments. We have a single column named "department" which contains the department where the CLABSI events occurred.
+
+After you are satisfied with your parameters, you may click the "Continue" button to proceed with the analysis. 
+
+
+<!--chapter:end:02_Tutorial_Parameters.Rmd-->
+
+---
+title: "03_Tutorial_EDA_Assumptions"
+output: pdf_document
+---
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+
+#  Step 2: Exploratory Data Analysis and Checking Assumptions {#eda_assumptions}
+
+## Exploratory Data Analysis
+
+It is important to understand your data. Your data is the foundation for all further analysis. You cannot create any meaningful interpretation from bad data, and not all data is suited for SPC charts. There are many tools for data exploration, and you get to decide how deep to explore. Before you start blindly exploring, its important to think about your data. 
+
+Take a minute to answer the following questions: 
+
+1. What are the typical values of your data, i.e. what do you expect the range of the data to be? 2. What do you think the distribution will look like? Will it be skewed? Will there be a lot of variance?
+
+This tab of the application contains a lot of important information. We have broken this information into four easily digestible sections. There will be a control or important text on the left-side panel, with a corresponding graph on the right-side panel.
+
+<br> 
+
+The first section is the area highlighted in blue. The blue section shows a plot your data as a line chart and a histogram (adding a density overlay provides a more "objective" sense of the distribution).
+
+```{r echo=FALSE, fig.align='center', fig.cap="Exploring the distributions of your data"}
+knitr::include_graphics("step3_distributions.png")
+```
+
+In these plots, consider:  
+
+1. The shape of the distribution: symmetrical/skewed, uniform/peaked/multimodal, whether changes in binwidth show patterning, etc.     
+2. Whether you see any trending, cycles, or suggestions of autocorrelation (we will discuss this more in the next step).
+3. Whether there are any obvious outliers or inliers---basically, any points deviating from the expected pattern. 
+
+The black points and line are simply the number of infections plotted over time. The blue line is the trend line, and the shaded grey area is the confidence interval of the trend line. We can say with 95% confidence that the true, *actual* trend line falls within this grey area. The grey area is *not* a control limit. Remember this is a line chart, not a SPC chart. 
+
+A histogram is an excellent tool for examining the distribution of the data. In R, there are two key arguments that you need to change to explore your data: `binwidth` **_or_** `bins`. You can control either by using the slider on the left-side panel. The default slider is controlling the number of bins, but you can select the check box to control the binwidth instead. This parameter is completely user dependent. It is up to you to change this parameter until *you* think you have a good understanding of the distribution. 
+
+Notice for our CLABSI example we have two line plots and two histograms. This is because we are comparing across departments of which we only have two, Acute Care and Critical Care. If we had four departments, we would have four of each graph. If you are not comparing across a column, then you should see only one line graph and one histogram. 
+
+Now we will refer back to the questions for evaluating are example plots.
+
+```{r echo=FALSE, fig.align='center', fig.cap="Graphs for CLABSI example data"}
+knitr::include_graphics("step3_distributions_zoomed.png")
+```
+
+*1. The shape of the distribution: symmetrical/skewed, uniform/peaked/multimodal, whether changes in binwidth show patterning, etc.* 
+Both histograms seem slightly skewed to the left. This makes sense because we would expect most CLABSI counts to be low with a few higher counts creating a tail, and we cannot have a negative count. The distribution does not appear to be multimodal or have any patterning. 
+
+*2. Whether you see any trending, cycles, or suggestions of autocorrelation (we will discuss this more in the next step).*
+Both line graphs appear to be trending downward, with Critical Care being more linear than Acute Care. 
+
+*3. Whether there are any obvious outliers or inliers---basically, any points deviating from the expected pattern.* 
+There are no outliers in Acute Care. The two points greater than 15 in Critical Care could be outliers, but they do not appear to be extreme. Note that even if we suspect that point to be an outlier, it is still part of our data. We can look for an explanation for it, but we cannot remove it. We acknowledge its existence now, and remember it if it comes up during later analysis. 
+
+Now we will move onto the next step, checking your assumptions.
+
+<br>
+
+## Checking Assumptions
+
+There are three main assumptions that must be met for a SPC chart to be meaningful. 
+
+1. We assume that the data does not contain a trend. 
+2. We assume that the data is independent. 
+3. We assume that the data is not autocorrelated. 
+
+To determine if the first assumption is met, we should look to the areas highlighted in green. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Determining if your data is trending"}
+knitr::include_graphics("step3_distributions.png")
+```
+
+In the previous step, you already completed a trend test: you looked at the line chart on the right-side panel and decided if it was trending or not. You can tell by eye: does it look like it's trending over a large span of the time series? If so, then it probably is trending.
+
+The Mann-Kendall trend test is often used as well. It is a non-parametric test that can determine whether the series contains a monotonic trend, linear or not. The null hypothesis being tested is that the data does not contain a trend. A caveat is that when sample size is low (n < 20) this test is not useful/accurate.
+
+The Mann-Kendall trend test has been run for you and the results are shown on the left-side panel. For our example CLABSI data was can see the following: 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Mann-Kendall test for each department"}
+knitr::include_graphics("step3_mann_kendall.png")
+```
+
+The Acute Care department passes the trend test at 5%. This means that its p-value (0.006) is less than 0.05. The Critical Care department fails the trend test at 5% because its p-value is 0.08. This is where some flexibility can come into play. This p-value is not that far away from 5%. In fact, another commonly used level for evaluating p-values is the 10% threshold, in which case both would have passed the trend test. Because trends can be an indication of special cause variation in a stable process, standard control limits don't make sense around long-trending data, and calculation of center lines and control limits will be incorrect. **Thus, any SPC tests for special causes other than trending will *also* be invalid over long-trending data.** For the purposes of this example, we will proceed with the analysis. 
+
+If the data does have a trend, then a an alternative is to use a run chart with a median slope instead, e.g., via quantile regression. You can generally wait until the process has settled to a new, stable mean and reset the central line accordingly. For a sustained or continuous trend, you can difference the data (create a new dataset by subtracting the value at time *t* from the value at time *t+1*) to remove the trend or use regression residuals to show deviations from the trend.
+
+However, either approach can make the run chart harder to interpret. Perhaps a better idea is use quantile regression to obtain the median line, which allows you to keep the data on the original scale. 
+
+The second and third assumptions pertain to independence and autocorrelation. Information about these can be found in the orange shaded regions on the application. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Determining if your data is independent or autocorrelated"}
+knitr::include_graphics("step3_autocorrelation.png")
+```
+
+Independence and autocorrelation are two important, related terms. 
+
+Independence generally means that the value of the data will not change due to other variables or previous data points, ex. rolling a fair die and flipping a coin. The value that the die lands on should not be affected by the coin flip nor the previous value of the die. 
+
+Correlation is the tendency for one variable to increase or decrease as a different variable increases. Autocorrelation is a variable that correlates with itself lagged or leading in time, ex. if it rained yesterday, it will be more likely to rain today. If variables are independent, then they do not have any correlation.
+
+For either run charts or control charts, the data points must be independent for the guidelines to be effective. The first test of that is conceptual---do you expect that one value in this series will influence a subsequent value? For example, the incidence of some hospital-acquired infections can be the result of previous infections. Suppose one happens at the end of March and another happens at the start of April in the same unit, caused by the same organism---you might suspect that the monthly values would not be independent.
+
+After considering the context, a second way to assess independence is by calculating the autocorrelation function (acf) for the time series. The ACF for the example CLABSI data can be seen below. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="ACF plot for Acute Care unit"}
+knitr::include_graphics("step3_autocorrelation_zoomed_AC.png")
+```
+
+Note that this plot is for just the Acute Care department. There is a drop-down box that contains the names of the other categories in your column you are comparing across. In our example, we can view the ACF plots for both the Acute Care and Critical Care departments.  
+
+The `acf` function provides a graphical summary of the autocorrelation function, with each data point correlated with a value at increasing lagged distances from itself. Each correlation is plotted as a spike; spikes that go above or below the dashed line suggest that significant positive or negative autocorrelation, respectively, occurs at that lag (at the 95% confidence level). 
+
+If all spikes occur inside those limits, it's safe to assume that there is no autocorrelation. If only one or perhaps two spikes exceed the limits slightly, it could be due simply to chance. Clear patterns seen in the acf plot can indicate autocorrelation even when the values do not exceed the limits. 
+
+Autocorrelation values over 0.50 generally indicate problems, as do patterns in the autocorrelation function. However, *any* significant autocorrelation should be considered carefully relative to the cost of potential false positive or false negative signals. Autocorrelation means that the run chart and control chart interpretation guidelines will be wrong.
+
+For control charts, autocorrelated data will result in control limits that are too small. Data with seasonality (predictable up-and-down patterns) or cycles (irregular up-and-down patterns) will have control limits that are too large. There are diagnostic plots and patterns that help identify each, but the best test is "what does it look like?" If the trend seems to be going up and down, and the control limits don't, it's probably wrong.
+
+When data are autocorrelated, control limits will be *too small*---and thus an increase in *false* signals of special causes should be expected. In addition, none of the tests for special cause variation remain valid.    
+
+Sometimes, autocorrelation can be removed by changing the sampling or metric's time step: for example, you generally wouldn't expect hospital acquired infection rates in one quarter to influence those in the subsequent quarter.  
+
+It can also be sometimes removed or abated with differencing, although doing so hurts interpretability of the resulting run or control chart.  
+
+If have autocorrelated data, and you aren't willing to difference the data or can't change the sampling rate or time step, you shouldn't use either run or control charts, and instead use a standard line chart. If you must have limits to help guide decision-making, you'll need a more advanced technique, such as a Generalized Additive Mixed Model (GAMM) or time series models such as ARIMA. It's probably best to work with a statistician if you need to do this.    
+
+Back to our example in the plot above, we can see that the Acute Care ACF plot about has no problems with autocorrelation. The ACF plot for the Critical Care department is shown below. When comparing across several categories, it is important to check the individual plot for each category.
+
+```{r echo=FALSE, fig.align='center', fig.cap="ACF plot for Critical Care unit"}
+knitr::include_graphics("step3_autocorrelation_zoomed_CC.png")
+```
+
+There are no peaks or patterns in the spectrum plots. One blue line slightly crosses the dashed line, however, this is a good example of something that might reasonably happen by random chance. 
+
+We can conclude that both our departments do not have a problem with autocorrelation. 
+
+Finally, we can move on to the last important region on the application, shaded in red. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Required checkboxes to proceed with analysis"}
+knitr::include_graphics("step3_evaluate_checkboxes.png")
+```
+
+It is tempting to speed to the end and get your chart. However, it is very important that these assumptions are met, and that you have explored your data and determined that it is suitable for a SPC chart. On the left-side panel, there are three key checkboxes that serve as a pseudo-contract with the user. You must acknowledge that run chart interpretation will be wrong or misleading unless each condition has been met. Once you check all three boxes, you will be able to click the "Continue" button on the right-side panel to move on with the analysis. The Continue button will be locked until all three boxes have been checked. 
+
+<!--chapter:end:03_Tutorial_EDA_Assumptions.Rmd-->
+
+---
+title: "05_RunChart"
+output: pdf_document
+---
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+
+# Run Chart {#run_chart}
+
+The next tab will plot a run chart for your data. If you are comparing across categories, then it will plot a run chart for each category. We can see the run charts for our example CLABSI data in the figure below. It is important to always inspect your run chart before jumping straight to a control chart. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="A run chart for each department"}
+knitr::include_graphics("step4_run_chart.png")
+```
+
+Run charts are designed to show a metric of interest over time. They do not rely on parametric statistical theory, so they cannot distinguish between common cause and special cause variation. Control charts can be more powerful when properly constructed, but run charts are easier to implement where statistical knowledge is limited and still provide practical monitoring and useful insights into the process.
+
+Run charts typically employ the median for the reference line. Run charts help you determine whether there are unusual runs in the data, which suggest non-random variation. They tend to be better than control charts in trying to detect moderate (~$\pm$ 1.5$\sigma$) changes in process than using the control charts' typical $\pm$ 3$\sigma$ limits rule alone. 
+
+*In other words, a run chart can be more useful than a control chart when trying to detect improvement while that improvement work is still going on.*
+
+There are two basic "tests" for run charts (an astronomical data point or looking for cycles aren't tests *per se*):  
+
+- *Process shift:* A non-random run is a set of $log_2(n) + 3$ consecutive data points (rounded to the nearest integer) that are all above or all below the median line, where *n* is the number of points that do *not* fall directly on the median line. For example, if there are 34 points and 2 fall on the median, then $n = 32$ observations.Plugging this value into the equation: $log_2(32) + 3 = 5 + 3 = 8$. So, in this case, the longest run should be no more than 8 points.
+
+- *Number of crossings:* Too many or too few median line crossings suggest a pattern inconsistent with natural variation. You can use the binomial distribution (`qbinom(0.05, n-1, 0.50)` in R for a 5% false positive rate and expected proportion 50% of values on each side of the median) or a table (e.g., [Table 1 in Anhøj & Olesen 2014](http://journals.plos.org/plosone/article?id=10.1371/journal.pone.0113825#pone-0113825-t001)) to find the minimum number of expected crossings.
+
+Note: this table also has pre-calculated values for longest run too. 
+
+First we will evaluate the Acute Care run chart. There aren't any astronomically different unusual points. We know we have 98 observations for this department. We can see that there are no values that fall directly on the median line. There are points that are close, but we can hover over the suspicious points to see their exact value. Thus out of all 98 observations all of them are useful, and $n = 98$.
+
+To test for process shift, we can use our equation $log_2(98) + 3 = 6.615 + 3 = 9.615 -> rounded-> 10$. So our longest run should be no more than 10 consecutive points that are all above or all below the median line. We could have also used the table, which confirms 10 as our longest allowed run. From the run chart, we can see that our longest run is 6, so we pass this test. 
+
+To test the number of crossings, we can either use a binomial distribution or the look-up table provided in the link above. Using our statistical software, we can see that $qbinom(0.05, 98 - 1, 0.50) = 40$. Thus we want at least 40 crossings in order to pass this test. The table confirm this threshold as well. We can see from the run chart that we have 43 crossings and thus pass this test too. 
+
+Next we will evaluate the Critical Care run chart, which has 54 observations. None of these observations fall on the median line, so $n = 54$. There are also no astronomical, obviously unusual, points. 
+
+To test for process shift, we can use our equation $log_2(54) + 3 = 5.755 + 3 = 8.755 -> rounded-> 9$. So our longest run should be no more than 9 consecutive points that are all above or all below the median line. The table confirms 9 as our longest allowed run. From the run chart, we can see that our longest run is 5, so we pass this test.
+
+To test the number of crossings, we can either use a binomial distribution or the look-up table provided in the link above. Using our statistical software, we can see that $qbinom(0.05, 54 - 1, 0.50) = 21$. Thus we want at least 21 crossings in order to pass this test. The table confirm this threshold as well. We can see from the run chart that we have 31 crossings and thus pass this test too. 
+
+We can conclude that there is not any non-random variation suggested in either run chart. Now we can proceed with our control chart. One note, however, on the plot itself. You may have noticed that the output used by the application is a plotly graph, which is interactive. You may click and drag on a region to zoom-in on it. Double clicking the mouse will reset the view. You may over over points to see a tool tip with more information. There is a panel in the upper-right-hand corner of the graph which contains even more user controls, including the ability to save the image as a `.png` file. This plotting tool will be the same used for plotting our control charts in the next section. 
+
+<!--chapter:end:04_Tutorial_RunChart.Rmd-->
+
+---
+title: "06_ControlChart"
+output:
+  html_document:
+    df_print: paged
+---
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+
+# Control Chart {#control_chart}
+
+The primary distinction between run and control charts is that the latter uses parametric statistics monitor additional properties of a data-defined process. If a particular statistical distribution---such as normal, binomial, or Poisson---matches the process you wish to measure, a control chart offers a great deal more power to find insights and monitor change than a line or run chart. Parametric distributions are a *useful fiction*---no data will follow an idealized distribution, but as long as it's close, the distribution properties provide useful shortcuts that allow SPC charts to work *in practice*.
+
+There are [hundreds of statistical distributions](https://en.wikipedia.org/wiki/List_of_probability_distributions), but only a handful are commonly used in SPC work:  
+
+| Data Type | Distribution | Range | Skew | Example | SPC chart |
+| --------- | ------------ | ----- | ---- | ------- | --------- |
+| *Discrete* | Binomial | 0, $N$ | Any | Bundle compliance percentage | *p*, *np* | 
+| | Poisson | 0, $\infty$ | Right | Infections per 1,000 line days | *u*, *c* | 
+| | Geometric | 0, $\infty$ | Right | Number of surgeries between complications | *g* | 
+| *Continuous* | Normal | $-\infty$, $\infty$ | None | Patient wait times | *I*, $\bar{x}$, EWMA, CUSUM | 
+| | Weibull | 0, $\infty$ | Right | Time between antibiotic doses | *t* | 
+
+When control charts use the mean to create the center line, they use the arithmetic mean. Rather than using the $\bar{x}$ abbreviation, these mean values are usually named for the type of chart (*u*, *p*, etc.) to emphasize the use of control limits that are *not* based on the normal distribution. The variance used to calculate the control limits differs by distribution.   
+
+The first decision that you must make is the correct control chart for your data. The first thing on this section of the application is a handy flow chart to help you make that decision. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="Which control chart should I use?"}
+knitr::include_graphics("control_chart_flowchart.png")
+```
+
+We will walk through the flow chart to answer this question for our example CLABSI data.
+
+*Does the data meet control chart guidelines?* Yes.
+*Size of change* We want to detect larger changes. 
+*Data type* The data is count data. 
+*Average rate* We have more than 2 occurrences per time period. 
+
+We want to use a *u* chart! The flowchart also lists common applications for each type of chart. Our decision is backed up by the chart because 'Infections per 1000 central line days' is a common reason for using a *u* control chart. 
+
+Next we can scroll down to see a left-side panel with user options and inputs, the right-side panel is initially blank. The first option to select on the left panel is "Choose your control chart". Find the chart that you chose using the flowchart and select it. This will create your control chart on the right-side panel. We have chosen to use a u-chart for our example CLABSI data which can be seen in the figure below. Once again, each department has its own control chart for comparison. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="u-charts for CLABSI data by department"}
+knitr::include_graphics("step5_control_chart.png")
+```
+
+The next option on the left-side panel is a check box that asks "Do you want to break the x-axis?". To break the axis means to set a point in which different control limits are calculated before and after. This can be a column in your data containing time groupings, like "pre-implementation" and "post-implementation" *or* you can select "Choose date on calendar". In the figure below, we have checked the box to break the x-axis. Then we selected Choose date on calendar". Using the calendar that pops up, we selected June 17th, 2004. If you look at this date on the control charts, you can see where the axis was broken. The change in control limits at that date is more noticeably for Critical Care than for Acute Care. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="u-charts for CLABSI data by department"}
+knitr::include_graphics("step5_break_axis.png")
+```
+
+The next option is a check box labelled "Data has already been grouped". Below this is a drop down box containing various time aggregates. If the data has already been group, then you can use the drop down to select how it is being group. If you wish to change the aggregation of the data, then you can *uncheck* this box. This changes the drop-down box to "The data needs to be subgrouped by:" where you can select your desired aggregation. The example CLABSI data was already aggregated by month, so we cannot go backwards into weeks or days. However, we can view the data aggregated by quarters instead.
+
+```{r echo=FALSE, fig.align='center', fig.cap="u-charts for CLABSI data aggregated by quarter"}
+knitr::include_graphics("step5_agg_quarter.png")
+```
+
+Be careful that you do not render your data useless by aggregation. When you aggregate, you lose information, and if you do not have enough observations you may miss what your data is trying to say. An example of too much aggregation is our same example CLABSI data aggregated by year. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="u-charts for CLABSI data aggregated by year"}
+knitr::include_graphics("step5_agg_year.png")
+```
+
+Moving down the left-side panel, the next thing we see is the "Overdispersion test for u-chart and p-chart". This only applies to these two charts. If overdispersion is a problem, which will be indicated in red text, then you should use prime charts instead, i.e. a u' chart instead of u chart and p' chart instead of p chart. These are both available in the "Choose your control chart" drop-down box.
+
+The final set of options are called "Advanced Plot Options" and are completely optional. Here you can prevent the y-axis from being negative (depending on your use-case) by unchecking the box. You can enter your own custom labels for the axes by checking the corresponding boxes and simply typing your desired labels. If you have a benchmark value or target value, you can check those corresponding boxes and simply enter the desired numbers. Finally, if you wish to annotate you plot you can check the box labelled "I want to annotate specific points". This feature is only available for single plots (not comparing across groups like we did in the CLABSI example). A table of all your data will appear below your control chart. Simply double-click into the "annotations" column at the row you wish to annotate. Type in your annotation. When finished, use Ctrl and Enter simultaneously to finish editing the text box. Your annotation will appear as a number, with the text appearing when hovered over. 
+
+An example of these features in use can be seen below. 
+
+```{r echo=FALSE, fig.align='center', fig.cap="u-chart for full dataset with advanced plot options"}
+knitr::include_graphics("step5_advanced_plot_options.png")
+```
+
+Custom axes labels have been specified. A benchmark value has been set at 3.5, and a target value set at 2.5. These appear on the graph as dashed lines (grey and navy respectively) and have their own legend. Finally three annotations have been added using the table below. On the graph these appear as "1", "2", and "3" with vertical lines to the point they belong to. When you hover over each annotation number, you can see the full text. 
+
+At the very bottom are two options. You can either choose to start the application over with a new file, or you may quit and close the application. This ends the tutorial on using the accompanying SPC Shiny App. Over the next few chapters we will delve deeper into control charts and how to interpret them. 
+
+<!--chapter:end:05_Tutorial_ControlChart.Rmd-->
+
+---
+title: "01_CommonMistakes"
+output: pdf_document
+---
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+# (PART) Part I {-}
+
+# Common Mistakes in SPC {#ch1_commonMistakes}
+
+People are really, really good at finding patterns that aren't real, especially in noisy data.
+
+Every metric has natural variation---*noise*---included as an inherent part of that process. True signals only emerge when you have properly characterized that variation. Statistical process control (SPC) charts---run charts and control charts---help characterize and identify non-random patterns that suggest the process has changed.    
+
+## Mistake #1
+### Not using all the information that you have available to you {- #ch1_mistake1}
+
+In essence, SPC tools help you evaluate the stability and predictability of a process or its outcomes. Statistical theory provides the basis to evaluate metric stability, and more confidently detect changes in the underlying process amongst the noise of natural variation. 
+
+Since it is impossible to account for every single variable that might influence a metric, we can use probability and statistics to evaluate how that metric naturally fluctuates over time (aka common cause variation), and construct guidelines around that fluctuation to help indicate when something in that process has changed (special cause variation).  
+
+Understanding natural, random variation in time series or sequential data is the essential point of quality assurance or process and outcome improvement efforts. It's a rookie mistake to use SPC tools to focus solely on the values themselves or their central tendency---instead evaluate [*all* of the information](#guidelines) of a run chart or control chart to understand what it's telling you. 
+
+<br>
+\vspace{12pt}
+
+<br>
+\vspace{12pt}
+
+## Mistake #2
+### Forgetting that SPC charts cannot make decisions for you, they can only help *you* to make a decision {- #ch1_mistake2}
+This example illustrates why it is important to think about your data and not blindly listening to the guidelines.
+
+Figure 1 shows a process created using random numbers based on a pre-defined normal distribution. The black points and line are the data itself, the overall mean (*y* = 18) is represented by the grey line, and the overall distribution is shown in a histogram to the right of the run chart.
+
+<br>
+\vspace{12pt}
+
+```{r ggmarg, fig.height=3, fig.align='center', echo=FALSE}
+library(ggplot2)
+library(ggExtra)
+
+set.seed(250)
+df = data.frame(x = seq(1:120), y = 18 + rnorm(120))
+
+nat_var_run_plot <- ggplot2::ggplot(df, aes(x, y)) +
+  geom_point(size = 1) +
+  geom_hline(aes(yintercept = 18), color = "gray", size = 1) +
+  geom_line() +
+  ylim(14.75, 21.25) +
+  labs(x = "Subgroup", y = "Value", title = "A stable process created from random numbers") +
+  theme_bw()
+
+ggExtra::ggMarginal(p = nat_var_run_plot, margins = "y", type = "histogram", binwidth = 0.5)
+```
+
+*Figure 1:* The axis labels are traditional SPC labels. The *value* (i.e., metric) is on the *y*-axis and the units of observation, traditionally called *subgroups*, are on the *x*-axis. 
+
+<br>
+\vspace{12pt}
+
+The term subgroup was developed in the context of an observation point involved sampling from a mechanical process, e.g., taking 5 widgets from a production of 500. Many SPC examples  maintain this label regardless of what the *x*-axis is actually measuring for simplicity's sake --- we follow this convention where appropriate.
+
+<br>
+\vspace{12pt}
+
+Another feature of SPC control charts are control limits. The symbol $\sigma$ is a measure of expected process standard deviation. Figure 2 adds control limits which are at $\pm$ 3$\sigma$.
+
+<br>
+\vspace{12pt}
+
+```{r ggmarg_cc, fig.height=3, fig.align='center', echo=FALSE}
+nat_var_cc_plot <- ggplot(df, aes(x, y)) + 
+  geom_segment(aes(x = 1, xend = 120, y = 18, yend = 18), color = "gray", size = 2) +
+  geom_segment(aes(x = 1, xend = 120, y = 20.96, yend = 20.96), color = "red", size = 2) +
+  geom_segment(aes(x = 1, xend = 120, y = 15.1, yend = 15.1), color = "red", size = 2) +
+  
+  geom_segment(aes(x = 1, xend = 120, y = 16.04, yend = 16.04), color = "grey") +
+  geom_segment(aes(x = 1, xend = 120, y = 17.02, yend = 17.02), color = "grey") +
+  geom_segment(aes(x = 1, xend = 120, y = 18.98, yend = 18.98), color = "grey") +
+  geom_segment(aes(x = 1, xend = 120, y = 19.96, yend = 19.96), color = "grey") +
+  
+  # geom_ribbon(aes(ymin = 18.98, ymax = 19.96), alpha = 0.2) +
+  # geom_ribbon(aes(ymin = 16.04, ymax = 17.02), alpha = 0.2) +
+  
+  annotate("text", x = 1, y = 21.25, label = "Upper Control Limit (UCL)", color = "red", hjust = 0, vjust = 0) +
+  annotate("text", x = 1, y = 14.75, label = "Lower Control Limit (LCL)", color = "red", hjust = 0, vjust = 1) +
+
+  annotate("text", x = 135, y = 18.98, label = as.character(expression("+1"~sigma)), 
+           color = "gray30", parse = TRUE, hjust = 1) + 
+  annotate("text", x = 135, y = 19.96, label = as.character(expression("+2"~sigma)), 
+           color = "gray30", parse = TRUE, hjust = 1) + 
+  annotate("text", x = 135, y = 20.96, label = as.character(expression("+3"~sigma)), 
+           color = "gray30", parse = TRUE, hjust = 1) + 
+  annotate("text", x = 135, y = 17.02, label = as.character(expression("-1"~sigma)), 
+           color = "gray30", parse = TRUE, hjust = 1) + 
+  annotate("text", x = 135, y = 16.04, label = as.character(expression("-2"~sigma)), 
+           color = "gray30", parse = TRUE, hjust = 1) + 
+  annotate("text", x = 135, y = 15.1, label = as.character(expression("-3"~sigma)), 
+           color = "gray30", parse = TRUE, hjust = 1) + 
+  annotate("text", x = 135, y = 18.05, label = "bar(x)", color = "gray30", parse = TRUE, hjust = 1) + 
+
+  geom_point(size = 1) +
+  geom_line() +
+  
+  ylim(14.25, 21.75) +
+  xlim(0, 135) +
+  
+  labs(x = "Subgroup", y = "Value", title = "A stable process created from random numbers",
+       subtitle = "with control limits and standard deviation indicators") +
+  theme_bw()
+
+nat_var_cc_plot
+```
+<br>
+\vspace{12pt}
+
+*Figure 2*: The same plot as in Figure 1, with standard deviation indicators and control limits added.
+
+<br>
+\vspace{12pt}
+
+<br>
+\vspace{12pt}
+
+Guidelines on how to use these elements of SPC charts to evaluate the statistical process of a metric in more detail and determine whether to investigate the process for special cause variation are detailed in the section labeled [Guidelines for interpreting SPC charts](#guidelines) in the chapter Run Charts vs. Control Charts.
+
+<br>
+\vspace{12pt}
+
+Applying the  guidelines to the chart in Figure 2 reveals that some special cause variation has occurred in this data. Since this dataset was generated using random numbers from a known, stable, normal distribution, these are *False Positives*: the control chart suggests something has changed when in reality it hasn't. There is always a chance for *False Negatives*, as well, where something actually happened but the control chart didn't alert you to special cause variation.  
+
+<br>
+\vspace{12pt}
+
+Consider the matrix of possible outcomes for any given point in an SPC chart:
+
+|   |  Reality: Something Happened | Reality: Nothing Happened |
+| -------------- |:---------------:|:---------------:|
+| **SPC: Alert** | True Positive | *False Positive* |
+| **SPC: No alert** | *False Negative* | True Negative |
+
+<br>
+\vspace{12pt}
+
+Using $\pm$ 3$\sigma$ control limits is standard, intended to balance the trade-offs between *False Negatives* and *False Positives*. If you prefer to err on the side of caution for a certain metric (such as in monitoring hospital acquired infections) and are willing to accept more *False Positives* to reduce *False Negatives*, you could use $\pm$ 2$\sigma$ control limits. 
+
+<br>
+\vspace{12pt}
+
+For other metrics where you prefer to be completely certain things are out of whack before taking action --- and are willing to accept more *False Negatives* you to reduce *False Positives* --- you could use $\pm$ 4$\sigma$ control limits.  
+
+<br>
+\vspace{12pt}  
+
+**When in doubt, use $\pm$ 3$\sigma$ control limits.**  
+
+<br>
+\vspace{12pt}
+
+It's important to remember that SPC charts are at heart decision tools which can help you decide how to reduce false signals relative to your use case, but *they can never entirely eliminate false signals*. Thus, it's often useful to explicitly explore these trade-offs with stakeholders when deciding where and why to set control limits.
+
+<br>
+\vspace{12pt}
+
+<br>
+\vspace{12pt}
+
+
+## Mistake #3
+### Skipping to the end of the process {- #ch1_mistake3}
+Run charts and control charts are the core tools of SPC analysis. Other basic statistical graphs---particularly line charts and histograms---are equally important to SPC work.    
+
+Line charts help you monitor any sort of metric, process, or time series data. Run charts and control charts are meant to help you identify departures from a **stable** process. Each uses a set of guidelines to help you make decisions on whether a process has changed or not. 
+
+In many cases, a run chart is all you need. In *all* cases, you should start with a line chart and histogram. If---and only if---the process is stable and you need to characterize the limits of natural variation, you can move on to using a control chart.  
+
+In addition, *never* rely on a table or year-to-date (YTD) comparisons to evaluate process performance. These approaches obscure the foundational concept of process control: that natural, common cause variation is an essential part of the process. Tables or YTD values can supplement run charts or control charts, but should never be used without them. 
+
+Above all, remember that the decisions you make in constructing SPC charts and associated data points (such as YTD figures) *will* impact the interpretation of the results. Bad charts can make for bad decisions. 
+
+<br>
+\vspace{12pt}
+
+<br>
+\vspace{12pt}
+
+## Mistake #4 
+### Not understanding what it means to have a "stable" process {- #ch1_mistake4}
+It's common for stakeholders to want key performance indicators (KPIs) displayed using a control chart. However, control charts are only applicable when the business goal is to keep that KPI stable. SPC tools are built upon the fundamental assumption of a *stable* process, and as an analyst you need to be very clear on the definition of stability in the context of business goals and the statistical process of the metric itself. Because it takes time and resources to track KPIs (collecting the data, developing the dashboards, etc.) you should take time to develop them carefully by first ensuring that SPC tools are, in fact, an appropriate means to monitor that KPI. Let's look at two examples to get a more concrete understanding: 
+
+<br>
+\vspace{12pt}
+
+**Example 1:** Some outpatient specialties are facing increasing numbers of referrals, but are not getting more staff to handle them. With increasing patient demand and constrained hospital capacity, we would not expect the wait times for appointments to be constant over time. So, a KPI such as "percent of new patients seen within 2 weeks" might be a goal we care about, but since we expect that value to decline, it is not stable and a control chart is not appropriate. 
+However, if we define the KPI as something like "percent of new patients seen within 2 weeks *relative* to what we would expect given increased demand and no expansion", we have now placed it into a stable context. Instead of asking if the metric itself is declining, we're asking whether the system is responding as it has in the past. By defining the KPI in terms of something we would want to remain stable, we can now use a control chart to track its performance.
+
+<br>
+\vspace{12pt}
+
+**Example 2:** Complaints about phone wait time for a call center has led to an increase in full-time employees to support call demand. You would expect the call center performance---perhaps measured in terms of "percent of calls answered in under 2 minutes"---to improve, thus a control chart is not appropriate. So, what would a "stable" KPI look like? 
+
+* Maybe it could be the performance of the various teams within the call center become more similar (e.g., decreased variability across teams).
+
+* Maybe it could be the frequency of catastrophic events (e.g., people waiting longer than *X* minutes, where *X* is very large) staying below some threshold---similar to a "downtime" KPI used to track the stability of computer systems.
+
+* Maybe it could be the percent change in the previously-defined KPI tracking the percent change in full-time employees (though we know this relationship is non-linear).
+
+<br>
+\vspace{12pt}
+
+In both examples, it would not be appropriate to use a control chart for the previously-defined performance metrics, because we do not expect them (or necessarily want them) to be stable.  However, by focusing on the process itself, we can define alternate KPIs that conform to the assumptions of a control chart.
+
+<br>
+\vspace{12pt}
+
+*Stability* means that the system is responding as we would expect to the changing environment and that the system is robust to adverse surprises from the environment. **KPIs meant to evaluate stable processes should be specifically designed to track whether the system is stable and robust**, rather than focusing strictly on the outcome as defined by existing or previous KPIs.
+
+Make sure that metrics meant to measure stability are properly designed from the outset before you spend large amounts of resources to develop and track them. 
+
+
+<!--chapter:end:06_CommonMistakes.Rmd-->
+
+---
+title: "07_ConfusionBetweenCharts"
+output: html_document
+---
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+
+# (PART) Part III {-}
+
+# Run Charts vs. Control Charts {#common_confusion}
+
+We have created two useful reference tables that explore the difference between run and control charts. The first elaborates on when it's appropriate to use a control chart. The second contains the general rules-of-thumb on how to interpret each type of chart. Both can be downloaded in a [one-page cheat sheet](images/spc_which_should_i_use_letter.pdf) for ease of printing and sharing. More details on specific controls charts can be found in the chapter [A Guide to Control Charts](#guide_controlCharts).
+
+
+## Which should I use: a run chart or a control chart? {#run_or_control_chart}
+
+Always create a run chart first. Create a control chart only if you meet the necessary conditions, particularly that of monitoring a *stable* process. 
+
+In both cases, the data points must be non-trending and independent, that is, the position of one point does not influence the position of another point: there is no (serious) autocorrelation. If the data are autocorrelated, the guidelines for testing run or control charts will be invalid, which can lead to poor decision-making.    
+
+<br>
+
+
+| Use a run chart if | Use a control chart (only) if |
+| ------------------------------------ | ------------------------------------- |
+| You may or may not investigate or act when a data point crosses a reference, target, or goal level, or when guidelines suggest a non-random pattern is occurring. | You intend to investigate or act when the process moves outside of control or indicates special cause variation. | 
+|  |  | 
+| You have little control over or cannot control the metric (e.g., ED volume/acuity). | You have the potential to control the process driving the metric (e.g., ED wait times). | 
+|  |  | 
+| You want to monitor the behavior of individual or groups of data points to a reference, target, or goal level. | You want to monitor the "average" of the system's behavior (i.e., the underlying statistical process) and deviations from expectation. | 
+|  |  | 
+| You are monitoring a metric or process that is generally trending or contains seasonality or other cycles of known cause, as long as you are able to adjust for any seasonality as well as able calculate an appropriate median line (e.g., via quantile regression for trending data). | You are monitoring a *stable* statistical process (there is no trend in the time series, or you have made the appropriate corrections to account or adjust for trends or seasonality). |
+|  |  | 
+| You have no expectations that normal day-to-day operations will affect the central tendency. | You expect that normal day-to-day operations will keep the process stable within the bounds of common-cause variation. |
+|  |  | 
+| You do not need to account for the inherent natural variation in the system. | You need to understand and account for the inherent natural variation ("noise") in the system. | 
+|  |  | 
+| You have at least 12 data points. (Fewer than 12? Just make a line chart, or use an EWMA chart. Run chart guidelines may not be valid.) | You have 20 or more data points that are in a stable statistical process, or you have performed a power analysis that provides the appropriate *n* for the appropriate time interval(s). | 
+|  |  | 
+| You do not understand one or more of the statistical issues discussed in the control chart column. | You understand the practical trade-offs between the sensitivity and specificity of the control limits relative to your need to investigate or act. |
+|  |  | 
+| | You know which statistical distribution to use to calculate the control limits to ensure you have the proper mean-variance relationship. |  
+| | | 
+
+
+<br>
+
+<br>
+
+
+## Guidelines for interpreting SPC charts {#guidelines}
+
+
+| Run chart | Control Chart |
+| ----------------------------------- | ------------------------------------- |
+| ![](images/example_run_chart.png){ width=300px } | ![](images/example_control_chart.png){ width=300px } |
+| *"Astronomical" data point:* a point so different from the rest that anyone would agree that the value is unusual. | *One or more points fall outside the control limit:* if the data are distributed according to the given control chart's assumptions, the probability of seeing a point outside the control limits when the process has not changed is very low. |
+|  |  | 
+| *Process shift:* $log_2(n) + 3$ data points are all above or all below the median line, where $n$ is the total number of points that do $not$ fall directly on the median line. | *Process shift:* $log_2(n) + 3$ data points are all above or all below the mean line, where $n$ is the total number of points that do $not$ fall directly on the center line. |
+|  |  | 
+| *Number of crossings:* Too many or too few median line crossings suggest a pattern inconsistent with natural variation. | *Number of crossings:* Too many or too few center line crossings suggest a pattern inconsistent with natural variation. | 
+|  |  | 
+| *Trend:* Seven or more consecutive points all increasing or all decreasing (though this can be an ineffective indicator\*). | *Trend:* Seven or more consecutive points all increasing or all decreasing (though this can be an ineffective indicator\*).  | 
+|  |  | 
+| *Cycles:* There are obvious cycles that are not linked to known causes such as seasonality. | *Cycles:* There are obvious cycles of any sort. | 
+|  |  | 
+| | *Reduced variation:* Fifteen or more consecutive points all within 1$\sigma$. | 
+|  |  | 
+| | *1$\sigma$ signal:* Four of five consecutive points are more than one standard deviation away from the mean. | 
+|  |  | 
+| | *2$\sigma$ signal:* Two of three consecutive points are more than two standard deviations away from the mean. |
+| | | 
+
+
+<br>
+
+\**Note: Although many people use a "trend" test in association with run and control charts, research has shown this test to be ineffective (see [Useful References](#useful)). Use common sense when assessing possible trends in the data, knowing that people are good at seeing patterns where none exist.* 
+
+
+<!--chapter:end:07_ConfusionBetweenCharts.Rmd-->
+
+---
+title: "07_ConfusionBetweenCharts"
+output: pdf_document
+---
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+
+# A Guide to Control Charts {#guide_controlCharts}
+
+In this chapter we go over specific types of control charts, discuss tips and tricks for working with control charts, and introduce you to our own custom SPC plot function. 
+
+## Types of Control Charts {#types_controlCharts}
+
+
+| If your data involve... | use a ... | based on the ... distribution. | 
+| -------------------------------------- | --------- | ------------------------ | 
+| Rates  | *u* chart | Poisson | 
+| Counts (with equal sampling units) | *c* chart | Poisson |
+| Proportions  | *p* chart | binomial |
+| Proportions (with equal denominators) | *np* chart | binomial | 
+| Rare events | *g* chart | geometric | 
+| Individual points | *I* chart | normal | 
+| Subgroup average | $\bar{x}$ and *s* chart | normal |
+| Exponentially weighted moving average | EWMA chart | normal |
+| Cumulative sum | CUSUM chart | normal |
+| Time between (rare) events | *t* chart | Weibull |
+
+<br>
+\vspace{12pt}
+
+For count, rate, or proportion data, carefully define your numerator and denominator. Evaluate each separately over time to see whether there are any unusual features or patterns. Sometimes patterns can occur in one or the other, then disappear or are obscured when coalesced into a rate or proportion.  
+
+<br>
+\vspace{12pt}
+
+For count data, prefer *u*-charts to *c*-charts. In most cases, we do not have a constant denominator, so c-charts would not be appropriate. Even when we do, using a *u*-chart helps reduce audience confusion because you are explicitly stating the "per *x*".    
+
+<br>
+\vspace{12pt}
+
+For proportion data, prefer *p*-charts to *np*-charts. Again, we almost never have a constant denominator, so *np*-charts would not be appropriate. Even when we do, using a *p*-chart helps reduce audience confusion by explicitly stating the "per *x*".   
+
+<br>
+\vspace{12pt}
+
+Rare events can be evaluated either by *g*-charts for discrete events/time steps, or *t*-charts for continuous time.
+
+<br>
+\vspace{12pt}
+
+For continuous data, the definition of the control limits will depend on your question and the data at hand. To detect small shifts in the mean quickly, an EWMA is probably best, while to understand natural variation and try to detect special cause variation, an $\bar{x}$ and *s* chart will be more useful.
+
+<br>
+\vspace{12pt}
+
+In the rare cases you may need an individual chart, do *not* use 3$\sigma$ for the control limits; you must use 2.66$MR_{bar}$ instead to ensure the limits are presented correctly.  
+
+<br>
+\vspace{12pt}
+<br>
+\vspace{12pt}
+
+Note: EWMA and CUSUM charts aren't "standard" control charts in that the only guideline for detecting special cause variation is a point outside the limits. So while they can't detect special cause variation like control charts, they *can* detect shifts in mean with fewer points than a standard control chart. Because they are not standard, they are not included in the `qicharts2` package. We did create a custom SPC function which can be used for these charts, shown [later in this chapter](#custom_SPC_function).
+
+
+### *u*-chart example
+
+The majority of healthcare metrics of concern are rates, so the most common control chart is the *u*-chart.  
+
+Sometimes, a KPI is based on counts. This is obviously problematic for process monitoring in most healthcare situations because it ignores the risk exposure---for example, counting the number of infections over time is meaningless if you don't account for the change in the number of patients in that same time period. When KPIs are measuring counts with a denominator that is *truly fixed*, technically a *c*-chart can be used. This makes sense in manufacturing, but not so much in healthcare, where the definition of the denominator can be very important. You should always use a context-relevant denominator, so in basically all cases a *u*-chart should be preferred to a *c*-chart. 
+
+<br>
+\vspace{12pt}
+
+**Mean for rates (*u*):** &nbsp;&nbsp; $u = {\frac{\Sigma{c_i}}{{\Sigma{n_i}}}}$
+
+**3$\sigma$ control limits for rates (*u*):** &nbsp;&nbsp; $3\sqrt{\frac{u}{n_i}}$   
+
+*Infections per 1000 central line days*
+
+``` {r uex}
+qicharts2::qic(x = months, y = infections, n = linedays, data = uchart_data,
+               multiply = 1000, chart = 'u', x.angle = 45,
+               title = "u chart", xlab = "Month",
+               ylab = "Infection count per 1000 patient days")
+```
+
+### *p*-chart example
+
+When your metric is a true proportion (and not a rate, e.g., a count per 100), a *p*-chart is the appropriate control chart to use.  
+
+<br>
+\vspace{12pt}
+
+**Mean for proportions (*p*):** &nbsp;&nbsp; $p = {\frac{\Sigma{y_i}}{\Sigma{n_i}}}$
+
+**3$\sigma$ control limits for proportions (*p*):** &nbsp;&nbsp; $3\sqrt{\frac {p (1 - p)}{n_i}}$  
+
+
+*Proportion of patients readmitted*  
+
+```{r}
+qicharts2::qic(x = dates, y = readmits, n = discharges, data = pchart_data,
+               y.percent = TRUE, chart = 'p', x.angle = 45,
+               title = "p chart", xlab = "Month",
+               ylab = "Proportion readmitted")
+```
+
+### *g*-chart example
+
+There are important KPIs in healthcare related to rare events, such as is common in patient safety and infection control. These commonly have 0 values for several subgroups within the process time-period. In these cases, you need to use *g*-charts for a discrete time scale (e.g., days between events) or *t*-charts for a continuous time scale (e.g., time between events).
+
+<br>
+\vspace{12pt}
+
+**Mean for infrequent counts (*g*):** &nbsp;&nbsp; $g = {\frac{\Sigma{g_i}}{\Sigma{n_i}}}$
+&nbsp;&nbsp;&nbsp;&nbsp; *where*  
+&nbsp;&nbsp;&nbsp;&nbsp; $g$ = units/opportunities between events    
+
+**3$\sigma$ limits for infrequent counts (*g*):** &nbsp;&nbsp; $3\sqrt{g (g + 1)}$    
+
+
+*Days between infections*  
+
+
+```{r}
+qicharts2::qic(x = inf_index, y = days_between, data = gchart_data,
+               chart = 'g', x.angle = 45, title = "g chart",
+               xlab = "Infection number",
+               ylab = "Line days between infections")
+```
+
+### *c*- and *np*-chart details  
+
+Simply for completeness, means and control limits for *c*- and *np*-charts are presented here. To emphasize that *u*- and *p*-charts should be preferred (respectively), no examples are given.    
+
+<br>
+\vspace{12pt}
+
+**Mean for counts (*c*):** &nbsp;&nbsp; $\frac{\Sigma{c_i}}{n}$
+
+**3$\sigma$ control limits for counts (*c*)(not shown):** &nbsp;&nbsp; $3\sqrt{c}$   
+
+<br>
+\vspace{12pt}
+
+**Mean for equal-opporuntity proportions (*np*):** &nbsp;&nbsp; $np = {\frac{\Sigma{y_i}}{n}}$  
+&nbsp;&nbsp;&nbsp;&nbsp; *where*  
+&nbsp;&nbsp;&nbsp;&nbsp; $n$ is a constant  
+
+**3$\sigma$ control limits for equal-opporuntity proportions (*np*):** &nbsp;&nbsp; $3\sqrt{np (1 - p)}$  
+&nbsp;&nbsp;&nbsp;&nbsp; *where*  
+&nbsp;&nbsp;&nbsp;&nbsp; $n$ is a constant  
+
+
+
+
+### *I-MR* chart
+
+When you have a single measurement per subgroup, the *I-MR* combination chart is appropriate. They should always be used together. When using the `qicharts2` package, this means calling the `qic` function twice, once for each type of plot.
+
+<br>
+\vspace{12pt}
+
+**Mean($\bar{x}$):** &nbsp;&nbsp; $\bar{x} = \frac{\sum_{x_{i}}}{n}$
+
+**Control limits for normal data (*I*):** 2.66$MR_{bar}$  
+&nbsp;&nbsp;&nbsp;&nbsp; *where*  
+&nbsp;&nbsp;&nbsp;&nbsp; $MR_{bar}$ = average moving range of *x*s, excluding those > 3.27$MR_{bar}$   
+
+
+*Lab results turnaround time*
+
+```{r}
+qicharts2::qic(x = test_num, y = turnaround_time, data = imrchart_data,
+               chart = 'i', x.angle = 45, title = "i chart",
+               xlab = "Test number", ylab = "Turnaround time")
+
+qicharts2::qic(x = test_num, y = turnaround_time, data = imrchart_data,
+               chart = 'mr', x.angle = 45, title = "mr chart",
+               xlab = "Test number", ylab = "Turnaround time")
+```
+Unlike the attribute control charts, the *I-MR* chart requires a little interpretation. The *I* portion is the data itself, but the *MR* part shows the variation over time, specifically, the range between successive data points.  
+
+Look at the *MR* part first; if it's in control, then any special cause variation in the *I* portion can be attributed to a change in process. If the *MR* chart out of control, the control limits for the *I* portion will be wrong, and should not be interpreted. 
+
+
+
+### $\bar{x}$ and *s* chart
+
+When you have a sample or multiple measurements per subgroup, the $\bar{x}$ and *s* chart combination is the appropriate choice. Just as with the *I-MR* chart, they should always be used together. 
+
+<br>
+\vspace{12pt}
+
+Control limits (3&sigma;) are calculated as follows:  
+ 		  
+**Variable averages ($\bar{x}$):** &nbsp;&nbsp; $3\frac{\bar{s}}{\sqrt{n_i}}$
+ 		  
+**Variable standard deviation (*s*):** &nbsp;&nbsp; $3\bar{s}\sqrt{1-c_4^2}$  
+&nbsp;&nbsp;&nbsp;&nbsp; *where* $c_4 = \sqrt{\frac{2}{n-1}}\frac{\Gamma(\frac{n}{2})}{\Gamma(\frac{n-1}{2})}$  
+
+
+*Patient wait times*   
+
+```{r}
+qicharts2::qic(x = months, y = waits, data = xbarschart_data,
+               chart = 'xbar', x.angle = 45, title = "xbar chart",
+               xlab = "Test number", ylab = "Turnaround time")
+
+qicharts2::qic(x = months, y = waits, data = xbarschart_data, chart = 's',
+               x.angle = 45, title = "s chart", xlab = "Test number",
+               ylab = "Turnaround time")
+```
+Just as with the *I-MR* chart, you need to look at the *s* chart first---if it shows special-cause variation, the control limits for the $\bar{x}$ chart will be wrong. If it doesn't, you can go on to interpret the $\bar{x}$ chart. 
+
+
+
+
+### *t*-chart example
+
+If the time between rare events is best represented by a continuous time scale, use a *t*-chart. If a discrete time scale is reasonable, a *g*-chart may be simpler to implement and easier to interpret without transformation, though a *t*-chart is also acceptable.
+
+<br>
+\vspace{12pt}
+
+**Mean for time between events (*t*)(not shown):** &nbsp;&nbsp; $t = \bar{x}({y_i})$   
+&nbsp;&nbsp;&nbsp;&nbsp; *where*  
+&nbsp;&nbsp;&nbsp;&nbsp; $t$ = time between events, where *t* is always > 0    
+&nbsp;&nbsp;&nbsp;&nbsp; $y = t^{\frac{1}{3.6}}$  
+
+**Control limits for time between events (*t*)(not shown):** &nbsp;&nbsp; 2.66$MR_{bar}$    
+&nbsp;&nbsp;&nbsp;&nbsp; $MR_{bar}$ = average moving range of *y*s, excluding those > 3.27$MR_{bar}$   
+    
+Note: *t* chart mean and limits can be transformed back to the original scale by raising those values to the 3.6 power. In addition, the y axis can be plotted on a log scale to make the display more symmetrical (which can be easier than explaining how the distribution works to a decision maker).   
+
+*Days between infections*  
+
+```{r}
+qicharts2::qic(x = inf_index, y = days_between, data = tchart_data,
+               chart = 't', x.angle = 45, title = "t chart",
+               xlab = "Infection number",
+               ylab = "Line days between infections")
+```
+
+
+
+
+
+## Tips and tricks for successful control chart use {#tips_tricks_controlCharts}
+
+- The definition of your control limits depends on the trade-off between sensitivity and specificity for the question at hand. Typical control charts are built on 3$\sigma$ limits, which provides a balanced trade-off between sensitivity and specificity, that is, between under- and over-alerting to an indication of special cause variation. When you need to err on the side of caution---for example, in patient safety applications---2$\sigma$ limits may be more appropriate, while understanding that false positives will be higher. If you need to err on the side of certainty, 4-6$\sigma$ limits may be more useful.
+
+<br>
+\vspace{12pt}
+
+- With fewer than 20 observations, there is an increased chance of missing special cause variation. With more than 30 observations, there's an increased chance of detecting special cause variation that is really just chance. Knowing these outcomes are possible is useful to help facilitate careful thinking when control charts indicate special cause variation.       
+
+<br>
+\vspace{12pt}
+
+- Ensure your data values and control limits make sense. For example, if you have proportion data and your control limits fall above 1 (or above 100%) or below 0, there's clearly an error somewhere. Ditto with negative counts.    
+
+<br>
+\vspace{12pt}
+
+- For raw ordinal data (such as likert scores), do not use means or control limits. Just. Don't. If you must plot a single value, convert to a proportion (e.g., "top box scores") first. However, stacked bar or mosaic charts help visualize this kind of data much better, and can be done in the same amount of space.      
+
+<br>
+\vspace{12pt}
+
+- Control charts don't measure "statistical significance"---they are meant to reduce the chances of incorrectly deciding whether a process is in (statistical) control or not. Control limits are *not* confidence limits.
+
+<br>
+\vspace{12pt}
+
+- YTD comparisons don't work because they encourage naive, point-to-point comparisons and ignore natural variation---and can encourage inappropriate knee-jerk reactions. There is never useful information about a process in only one or two data points.    
+
+<br>
+\vspace{12pt}
+
+- A control chart should measure one defined process, so you may need to create multiple charts stratified by patient population, unit, medical service, time of day, etc. to avoid mixtures of processes.       
+
+<br>
+\vspace{12pt}
+
+- With very large sample or subgroup sizes, control limits will be too small, and the false positive rate will skyrocket.
+
+
+### When to revise control limits
+
+If you need to determine whether an intervention might have worked soon after or even during the improvement process, you shouldn't be using a standard control chart at all. Use a run chart or an EWMA or CUSUM chart to try to detect early shifts.
+
+When you have enough data points after the intervention (about 12-20), with no other changes to the process, you can "freeze" the median and/or mean+control limits at the intervention point and recalculate the median and/or mean+limits on the subsequent data. However, by doing so you are *already assuming* that the intervention changed the process. If there is no evidence of special cause variation after the intervention, you shouldn't recalculate the SPC chart values.
+
+Let's look at an example using data that we've created. 
+
+Say that an intervention happened at the start of year 3, but there was a lag between the intervention and when it actually showed up in the data.
+
+```{r}
+qicharts2::qic(x = date, y = y, n = n, data = intervention, chart = 'u',
+               multiply = 1000, title = "u chart", ylab = "Value per 1,000",
+               xlab = "Subgroup", part = 24)
+```
+
+<br>
+\vspace{12pt}
+
+Of course, the change point can be placed arbitrarily in a `qic` graph---with corresponding changes in control limits. For example, using the same data as above, compare those results with those when the change point is moved forward by 2, 4, or 6 time steps (pretending we don't actually know when the process truly changed):
+
+
+```{r}
+qicharts2::qic(x = date, y = y, n = n, data = intervention, chart = 'u',
+               multiply = 1000, title = "u chart", ylab = "Value per 1,000",
+               xlab = "Subgroup", part = 26)
+
+qicharts2::qic(x = date, y = y, n = n, data = intervention, chart = 'u',
+               multiply = 1000, title = "u chart", ylab = "Value per 1,000",
+               xlab = "Subgroup", part = 28)
+
+qicharts2::qic(x = date, y = y, n = n, data = intervention, chart = 'u',
+               multiply = 1000, title = "u chart",  ylab = "Value per 1,000",
+               xlab = "Subgroup", part = 30)
+```
+
+<br>
+\vspace{12pt}
+
+As you can see, the conclusions you could draw from a single control chart might be different depending on when the breakpoint is set.  
+
+Use common sense and avoid the urge to change medians or means and control limits for every intervention unless evidence is clear that it worked.
+
+SPC charts are blunt instruments, and are meant to try to detect changes in a process as simply as possible. When there is no clear evidence in SPC charts for a change, more advanced techniques---such as ARIMA models or intervention/changepoint analysis---can be used to assess whether there was a change in the statistical process at or near the intervention point.  
+
+
+## Custom SPC function {#custom_SPC_function}
+
+The `qicharts2` package is great for plotting a wide variety of charts. However, it does not contain the ability to plot EWMA or CUSUM charts. Also you might want more fine control over your plot. In these situations, you have to create the plot from scratch. We have created the following custom SPC function. Below are the EWMA and CUSUM plots using this function. The full code creating the function and examples of previous charts we have gone over can be found in the section [Custom SPC Function](#code_customSPC_function).
+
+
+### EWMA chart
+
+**Control limits for exponentially weighted moving average (EWMA):**  $3\frac{\bar{s}}{\sqrt{n_i}}\sqrt{\frac{\lambda}{2-\lambda}[1 - (1 - \lambda)^{2i}]}$   
+&nbsp;&nbsp;&nbsp;&nbsp; *where* $\lambda$ is a weight that determines the influence of past observations. If unsure choose $\lambda = 0.2$, but $0.05 \leq \lambda \leq 0.3$ is acceptable (where larger values give stronger weights to past observations).
+
+
+*Patient wait times (continued)*  
+
+``` {r ewmaex}
+# Generate fake patient wait times data
+set.seed(777)
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729,
+length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+dfw <- data.frame(months, waits)
+
+# Calculate control chart inputs
+subgroup.x <- as.Date(unique(months))
+subgroup.s <- subgroup.x
+point.x <- aggregate(dfw$waits, by = list(months), FUN = mean,
+                     na.rm = TRUE)$x
+point.s <- aggregate(dfw$waits, by = list(months), FUN = sd,
+                     na.rm = TRUE)$x
+mean.x <- mean(waits)
+mean.s <- sqrt(sum((sample.n - 1) * point.s ^ 2) / (sum(sample.n) -
+                                                      length(sample.n)))
+sigma.x <- mean.s / sqrt(sample.n)
+c4 <- sqrt(2 / (sample.n - 1)) * 
+      gamma(sample.n / 2) / gamma((sample.n - 1) / 2)
+sigma.s <- mean.s * sqrt(1 - c4 ^ 2)
+
+# Calculate control chart inputs
+subgroup.z <- subgroup.x
+lambda <- 0.2
+point.z <- matrix( , length(point.x))
+point.z[1] <- mean.x
+for (i in 2:length(point.z)) {
+point.z[i] <- lambda * point.x[i] + (1 - lambda) * point.z[i-1]
+}
+mean.z <- mean.x
+sigma.z <- (mean.s / sqrt(sample.n)) *
+            sqrt(lambda/(2-lambda) *
+            (1 - (1-lambda)^(seq(1:length(point.z)))))
+# Plot EWMA chart
+plotSPC(subgroup.z, point.z, mean.z, sigma.z, k = 3, band.show = FALSE,
+        rule.show = FALSE, label.x = "Month",
+        label.y = "Wait times moving average")
+```
+
+
+### CUSUM chart
+
+Lower and upper cumulative sums are calculated as follows:
+
+$S_{l,i} = -\max{[0, -z_i -k + S_{l,i-1}]},$  
+$S_{h,i} = \max{[0, z_i -k + S_{h,i-1}]}$  
+&nbsp;&nbsp;&nbsp;&nbsp; *where* $z_i$ is the standardized normal score for subgroup $i$ and $0.5 \leq k \leq 1$ is a slack value.   
+
+It is common to choose "decision limits" of $\pm 4$ or $\pm 5$.  
+
+{SKP: finish once EWMA fixed}
+
+*Patient wait times (continued)* 
+```{r}
+# Generate fake patient wait times data
+set.seed(777)
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') +
+                        sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+dfw <- data.frame(months, waits)
+
+# Calculate control chart inputs
+subgroup.x <- as.Date(unique(months))
+subgroup.s <- subgroup.x
+point.x <- aggregate(dfw$waits, by = list(months), FUN = mean,
+                     na.rm = TRUE)$x
+point.s <- aggregate(dfw$waits, by = list(months), FUN = sd, na.rm = TRUE)$x
+mean.x <- mean(waits)
+mean.s <- sqrt(sum((sample.n - 1) * point.s ^ 2) / (sum(sample.n) -
+                                                      length(sample.n)))
+sigma.x <- mean.s / sqrt(sample.n)
+c4 <- sqrt(2 / (sample.n - 1)) *
+      gamma(sample.n / 2) / gamma((sample.n - 1) / 2)
+sigma.s <- mean.s * sqrt(1 - c4 ^ 2)
+
+# Calculate control chart inputs
+subgroup.cusum <- subgroup.x
+slack <- 0.5
+zscore <- (point.x - mean.x)/sigma.x
+point.cusuml <- matrix(nrow = length(zscore))
+point.cusuml[1] <- -max(0, -zscore[1] - slack)
+for (i in 2:length(point.cusuml)) {
+point.cusuml[i] <- -max(0, -zscore[i] - slack - point.cusuml[i-1])
+}
+point.cusumh <- matrix(nrow = length(zscore))
+point.cusumh[1] <- max(0, zscore[1] - slack)
+for (i in 2:length(point.cusuml)) {
+point.cusumh[i] <- max(0, zscore[i] - slack - point.cusumh[i - 1])
+}
+mean.cusum <- 0
+sigma.cusum <- rep(1, length(subgroup.cusum))
+
+# Plot CUSUM chart
+lower.plot <- plotSPC(subgroup.cusum, point.cusuml, mean.cusum, sigma.cusum,
+                      k = 5, band.show = FALSE, rule.show = FALSE,
+                      label.y = "Wait Times? Cumulative sum")
+lower.plot + geom_line(aes(y = point.cusumh), col = "royalblue3") +
+geom_point(aes(y = point.cusumh), col = "royalblue3")
+```
+
+
+
+
+<!--chapter:end:08_AGuidetoControlCharts.Rmd-->
+
+---
+title: "09_AdditionalResources"
+output: pdf_document
+---
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+
+# Additional Resources {#additional_resources}
+
+## Time series EDA {#time_series}
+
+The chapter [Exploratory Data Analysis](#eda) contains the basic exploratory data analysis you should do before using SPC tools. But there are many other time series-oriented analytic tools available that can help you understand the data more completely.  
+
+There is usually far more information in a time series than is typically explored with basic SPC methods. You can create a variety of exploratory and diagnostic plots that help you understand the data more thoroughly. 
+
+Because Rachel's data used in previous chapters has no time series patterns, we'll use the `beer` dataset provided in the `fpp2` package. It has clear time-related patterns to explore with EDA tools.
+
+<br>
+\vspace{12pt}
+
+
+```{r beer_data}
+# Use Australian beer data, trimmed to a 15 year subset
+data(ausbeer, package = "fpp2")
+beer <- window(ausbeer, start = 1990.00, end = 2005.75)
+```
+
+### Trend
+
+The first thing to look for is whether there is a trend. The simplest way to let the data speak for this is by using a [loess smoother](https://en.wikipedia.org/wiki/Local_regression). 
+
+The `autoplot` function in the `forecast` package provides several out-of-the-box plots for time series data, and since it's built over `ggplot2`, it can use those functions as well. 
+
+There does seem to be an initial overall declining trend in the `beer` data that seems to flatten out.  
+
+
+```{r loess_trend1, fig.height=3}
+autoplot(beer) + 
+  geom_smooth()
+```
+
+### Seasonplot
+
+The seasonplot places each year as its own line over an x-axis of the sequential frequency, which defaults to the frequency of the time series. When there's no seasonal pattern across or within that frequency, the plot looks like spaghetti as the result of being driven by natural variation.  
+
+When there is a pattern in the time series, patterns emerge. In this case, the fourth quarter increase above the other quarters is quite evident.   
+
+```{r seasonplot2, fig.height=3}
+ggseasonplot(beer)
+```
+
+### Monthplot
+
+A monthplot puts all years into seasonal groups, where each line is a group (e.g., month) and each point in that line is an individual year. When there is a lengthy trend in the series, you can see it in a consistent up or down pattern in each seasonal group. You can also compare central tendencies across those groups with a mean or median line. 
+
+Data with no inherent pattern shows up as noise. Whereas in a time series with temporal patterns, you can see both the higher levels in Q4 as compared with the other quarters, but you can also see that this quarter's values is declining over the years, a pattern echoed to lesser extent in the early years' values for the other quarters.  
+
+```{r monthplot2, fig.height=3}
+ggmonthplot(beer)
+```
+
+### Autocorrelation 
+
+We've touched on autocorrelation in other portions of this book.
+
+The `acf` function provides a graphical summary of the autocorrelation function, with each data point correlated with a value at increasing lagged distances from itself. Each correlation is plotted as a spike; spikes that go above or below the dashed line suggest that significant positive or negative autocorrelation, respectively, occurs at that lag (at the 95% confidence level). If all spikes occur inside those limits, it's safe to assume that there is no autocorrelation. If only one or perhaps two spikes exceed the limits slightly, it could be due simply to chance. Clear patterns seen in the acf plot can indicate autocorrelation even when the values do not exceed the limits. 
+
+With the `beer` data, the patterning is obvious, especially at lags 2 (6 months apart) and 4 (1 year apart), and the correlation values are quite large.  
+
+```{r acf2, fig.height=3}
+# acf plot using the autoplot function instead of base for the ggplot look
+autoplot(acf(beer, plot = FALSE))
+```
+
+<br>
+\vspace{12pt}
+  
+The autocorrelation function is most concisely plotted with the approach above, but you can also plot the increasing lags against an initial value in individual scatterplots. If the points look like a shotgun target, there's no autocorrelation. Patterns in the points indicate autocorrelation in the data. Patterns strung along or perpendicular to the 1:1 dashed line suggest strong positive and negative correlation, respectively, though any sort of pattern is cause for concern.  
+
+The lagplot for the `df_ts` data shows the shotgun target "pattern" that suggests that only random variation is present.   
+
+Clear patterns emerge---especially at lag 4 (1 year apart)---in the lagplot for the `beer` data.  
+
+```{r lagplot2}
+# Scatterplot of beer data autocorrelation through first 8 lags
+lag.plot(beer, lags = 8, do.lines = FALSE)
+```
+
+
+The `pacf` function gives you a partial autocorrelation plot, which is the correlation between the first value and each individual lag. It's the same information provided by the lag plot, only more compact as it only displays the correlation value itself. This can be quite useful in identifying cycles in data. 
+
+Using the `beer` data shows the partial autocorrelation pattern. The spike at the second line indicates that there is a moderate negative relationship in values 6 months (2 quarters) apart, and the spike at the fourth line shows there's a strong positive relationship in values 1 year (4 quarters) apart.  
+
+```{r fig.height=3}
+autoplot(pacf(beer))
+```
+
+### Cycles
+
+Periodograms allow you to explore a time series for cycles that may or may not be regular in timing (which makes it slightly distinct from seasonality). Sunspot cycles are a classic example at ~11 years, a time span that obviously doesn't correspond to calendar seasons and frequencies.  
+
+Spikes in the periodogram designate possible cycle timing lengths, where the x-axis is based on frequency. The reciprocal of the frequency is the time period, so a spike in a periodogram for an annual series at a frequency of 0.09 suggests a cycle time of about 11 years.  
+
+<br>
+\vspace{12pt}
+
+A clear spike occurs in the `beer` data at a frequency of 0.26, a time period of about 4. Since this is quarterly data, it confirms the annual pattern seen in several plots above.   
+
+```{r periodicity2, fig.height=3}
+TSA::periodogram(beer)
+```
+
+### Decomposition
+
+The `decompose` function extracts the major pieces of a time series, while the `autoplot` function presents the results using `ggplot2` for a cleaner look. 
+
+
+```{r decomp2}
+autoplot(decompose(beer))
+```
+
+### Seasonal adjustment
+
+The `seasonal` package uses the U.S. Census Bureau's X-13ARIMA-SEATS method to calculate seasonal adjustment. The `seas` function can be used to view or save the results into another object.
+
+<br>
+\vspace{12pt}
+
+
+```{r seas}
+# Convert ts to data frame
+beer_df = tsdf(beer)
+
+# Get seasonally-adjusted values and put into data frame
+beer_season = seasonal::seas(beer)
+beer_df$y_seasonal = beer_season$data[,3]
+
+# Show top 6 lines of data frame
+knitr::kable(head(beer_df))
+```
+
+<br>
+\vspace{12pt}
+
+If you just want to plot it on the fly, `ggseas` provides the `stat_seas` function for use with `ggplot2`. As with all ggplots, you need a data frame first, which the `tsdf` function provides.    
+
+```{r seasonal2, fig.height=3, eval=FALSE}
+# Plot original and seasonally adjusted data
+ggplot(beer_df, aes(x, y)) + 
+  geom_line(color="gray70") +
+  stat_seas(color="blue")
+```
+
+### Residuals 
+
+Residuals---the random component of the time series---can also be explored for potential patterns. Ideally, you don't want to see patterns in the residuals, but they're worth exploring in the name of thoroughness. 
+
+```{r residuals_beer}
+# Convert ts residuals to data frame
+beer_df_rand = tsdf(decompose(beer)$random)
+
+# Add quarter as a factor
+beer_df_rand$qtr = factor(quarter(date_decimal(beer_df_rand$x)))
+
+# Plot residuals, with custom colors
+ggplot(beer_df_rand, aes(x, y)) + 
+  geom_hline(yintercept=0, linetype="dotted") +
+  geom_smooth(color = "gray70", alpha = 0.2) +
+  geom_point(aes(color = qtr)) +
+  scale_color_manual(values=c("#E69F00", "#56B4E9", "#009E73", "#000000"))
+```
+
+<br>
+\vspace{12pt}
+
+We can take that same information and facet by quarter for a different perspective. 
+
+<br>
+\vspace{12pt}
+
+```{r residuals_faceted_beer}
+# Residuals faceted by quarter
+ggplot(beer_df_rand, aes(x, y)) + 
+  geom_hline(yintercept=0, linetype="dotted") +
+  geom_smooth(color = "gray70", alpha = 0.2) +
+  facet_wrap(~ qtr) +
+  geom_point(aes(color = qtr)) +
+  scale_color_manual(values=c("#E69F00", "#56B4E9", "#009E73", "#000000"))
+```
+
+### Accumuluation plots 
+
+You can use the EDA tools above on rates, numerators, and denominators alike to explore patterns. When you do have a numerator and a denominator that create your metric, you can also plot them against each other, looking at the accumulation of each over the course of a relevant time frame (e.g., a year).  
+
+To illustrate, we'll create a new time series for monthly central line associated infections, set up so that the last two years of a 10 year series are based on a different process.  
+
+```{r accumplot_data}
+# Generate sample data
+set.seed(54)
+bsi_8yr = data.frame(Linedays = sample(1000:2000, 96),
+                     Infections = rpois(96, 4))
+bsi_2yr = data.frame(Linedays = sample(1200:2200, 24),
+                     Infections = rpois(24, 3))
+bsi_10yr = rbind(bsi_8yr, bsi_2yr)
+bsi_10yr$Month = seq(as.Date("2007/1/1"), by = "month", length.out = 120)
+bsi_10yr$Year = year(bsi_10yr$Month)
+bsi_10yr$Rate = round((bsi_10yr$Infections / bsi_10yr$Linedays * 1000), 2)
+```
+
+<br>
+\vspace{12pt}
+
+First, calculate the cumulative sums for the numerator and denominator for the time period of interest. Here, we use years.  
+
+<br>
+\vspace{12pt}
+
+```{r accumplot_calcs}
+# Calculate cumulative sums by year
+accum_bsi_df = bsi_10yr %>% 
+  group_by(Year) %>% 
+  arrange(Month) %>% 
+  mutate(cuml_linedays = cumsum(Linedays),
+         cuml_infections = cumsum(Infections))
+```
+
+
+Then, plot them against each other. Much like a seasonplot, a spaghetti "pattern" indicates that only random, common cause variation is acting on the variables. Strands (individual years) that separate from that mess of lines suggest that a different process is in place for those strands.  
+
+
+```{r accumplot}
+# Accumulation plot
+ggplot(accum_bsi_df, aes(x = cuml_linedays, y = cuml_infections,
+                         group = as.factor(Year))) +
+  geom_path(aes(color = as.factor(Year)), size = 1) +
+  geom_point(aes(color = as.factor(Year))) +
+  scale_y_continuous(name = "Cummulative Infections",
+                     breaks = seq(0,120,10)) +
+  scale_x_continuous(name = "Cumulative Central Line Days",
+                     breaks = seq(0,40000,5000)) +
+  scale_colour_brewer(type = "div", palette = "Spectral") +
+  guides(color = guide_legend(title = "Year")) +
+  ggtitle("Infections vesus Central Line Days by Year")
+```
+
+
+## Custom SPC Function {#code_customSPC_function}
+
+We've created a function that highlights points that may indicate special cause variation. Using this function does require some thought about setting up the variables, which was done on purpose---you should put as much care into the construction of run and control charts as your nurses put into patient care. To do any less is a disservice to the decision-makers who would rely on your work and the patients that rely on these decision-makers to provide the conditions that support the best care possible. 
+
+```{r eval = F}
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line,
+  #    default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df <- data.frame(subgroup, point)
+  df$ucl <- pmin(ucl.max, mean + k*sigma)
+  df$lcl <- pmax(lcl.min, mean - k*sigma)
+  warn.points <- function(rule, num, den) {
+    sets <- mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits <- apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma <- numeric()
+
+  p <- ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p <- p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p <- p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p <- p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma <- unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn <- "blue"
+  if (rule.show) {
+    shift.n <- round(log(sum(point!=mean), 2) + 3)
+    orange <- unique(c(orange.sigma,
+                      warn.points(point > mean - sigma &
+                                  point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] <- "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] <- "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3",
+                                  "orange" = "orangered",
+                                  "red" = "red3"),
+                       guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+
+```
+
+<br>
+\vspace{12pt}
+
+The following code sets up the variables for replicating the control charts in the chapter [A Guide to Control Charts](#guide_controlCharts) using the simulated data and the custom SPC function instead of qiccharts2.
+
+<br>
+\vspace{12pt}
+
+```{r eval=F}
+# Calculate u chart inputs
+subgroup.u <- unique(months)
+point.u <- infections.agg / linedays.agg * 1000
+central.u <- sum(infections.agg) / sum(linedays.agg) * 1000
+sigma.u <- sqrt(central.u / linedays.agg * 1000)
+
+# Plot u chart
+plotSPC(subgroup.u, point.u, central.u, sigma.u, k = 3, lcl.min  = 0,
+         label.x = "Month", label.y = "Infections per 1000 line days")
+
+
+
+# Calculate p chart inputs
+subgroup.p <- dates
+point.p <- readmits / discharges
+central.p <- sum(readmits) / sum(discharges)
+sigma.p <- sqrt(central.p*(1 - central.p) / discharges)
+
+# Plot p chart
+plotSPC(subgroup.p, point.p, central.p, sigma.p,
+         label.x = "Month", label.y = "Proportion readmitted")
+
+
+
+# Calculate g chart inputs
+subgroup.g <- seq(2, length(infections.index))
+point.g <- linedays.btwn
+central.g <- mean(point.g)
+sigma.g <- rep(sqrt(central.g*(central.g+1)), length(point.g))
+
+# Plot g chart
+plotSPC(subgroup.g, point.g, central.g, sigma.g, lcl.show = FALSE,
+         band.show = FALSE, rule.show = FALSE,
+         lcl.min = 0, k = 3, label.x = "Infection number",
+         label.y = "Line days between infections")
+
+
+
+
+# Calculate IMR control chart inputs
+subgroup.i <- seq(1, length(exit))
+subgroup.mr <- seq(1, length(exit) - 1)
+
+point.i <- exit - arrival
+point.mr <- matrix(nrow = length(point.i) - 1)
+for (i in 1:length(point.i) - 1) {
+    point.mr[i] <- abs(point.i[i + 1] - point.i[i])
+}
+
+mean.i <- mean(point.i)
+mean.mr0 <- mean(point.mr)
+mean.mr <- mean(point.mr[point.mr<=3.27*mean.mr0])
+sigma.i <- rep(mean.mr, length(subgroup.i))
+sigma.mr <- rep(mean.mr, length(subgroup.mr))
+
+# Plot MR chart
+plotSPC(subgroup.mr, point.mr, mean.mr, sigma.mr, k = 3.27,
+        lcl.show = FALSE, band.show = FALSE,
+        label.x = "Test number",
+        label.y = "Turnaround time (moving range)")
+
+# Plot I chart
+plotSPC(subgroup.i, point.i, mean.i, sigma.i, k = 2.66,
+         lcl.min = 0, band.show = FALSE,
+         label.x = "Test number", label.y = "Turnaround time")
+
+
+
+
+# Calculate XbarS control chart inputs
+subgroup.x <- as.Date(unique(months))
+subgroup.s <- subgroup.x
+point.x <- aggregate(dfw$waits, by = list(months), FUN = mean,
+                     na.rm = TRUE)$x
+point.s <- aggregate(dfw$waits, by = list(months), FUN = sd, na.rm = TRUE)$x
+mean.x <- mean(waits)
+mean.s <- sqrt(sum((sample.n - 1) * point.s ^ 2) /
+        (sum(sample.n) - length(sample.n)))
+sigma.x <- mean.s / sqrt(sample.n)
+c4 <- sqrt(2 / (sample.n - 1)) * gamma(sample.n / 2) /
+  gamma((sample.n - 1) / 2)
+sigma.s <- mean.s * sqrt(1 - c4 ^ 2)
+
+# Plot s chart
+plotSPC(subgroup.s, point.s, mean.s, sigma.s, k = 3,
+         label.x = "Month", label.y = "Wait times standard deviation (s)")
+
+# Plot xbar chart
+plotSPC(subgroup.x, point.x, mean.x, sigma.x, k = 3,
+         label.x = "Month", label.y = "Wait times average (x)")
+
+
+
+# Calculate t chart inputs
+subgroup.t <- subgroup.g
+point.t <- y
+central.t <- mean(y)
+sigma.t <- rep(mr_prime, length(point.t))
+
+# Plot t chart
+plotSPC(subgroup.t, point.t, central.t, sigma.t, lcl.show = FALSE,
+         band.show = FALSE, rule.show = FALSE,
+         lcl.min = 0, k = 2.66, label.x = "Infection number",
+         label.y = "Line days between infections (transformed)")
+```
+
+
+## Code used to generate examples {#code_examples}
+```{r eval = F}
+### Rachel's Data
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730),
+                  "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum,
+                        na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+### example control charts
+
+# Set seed for reproducibility
+set.seed(72)
+
+#### u chart 
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum,
+                        na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+#### p chart
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+#### g chart
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index,
+                                 length(infections.index) - 1) + 1,
+                   end = tail(infections.index,
+                              length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- tibble(inf_index = 1:length(linedays.btwn),
+                      days_between = linedays.btwn)
+
+
+#### IMR chart
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival,
+                        test_num = 1:length(exit))
+
+
+
+#### XbarS chart
+# Generate fake patient wait times data
+set.seed(777)
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') +
+                        sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+
+##### t chart
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+##### change in process example
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month',
+                                     length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+
+
+
+## Useful References {#useful_resources}
+- For more information, a good overview of run charts can be found in Perla et al. 2011, [*The run chart: a simple analytical tool for learning from variation in healthcare processes*](http://www.med.unc.edu/cce/files/education-training/The%20run%20chart%20a%20simple%20analytical%20tool.pdf), BMJ Quality & Safety 20:46-51.  
+
+<br>
+\vspace{12pt}
+
+- A straight-to-the-point reference/tool for doing run charts in R is Anhøj 2016, [*Run charts with R*](https://cran.r-project.org/web/packages/qicharts/vignettes/runcharts.html).
+
+<br>
+\vspace{12pt}
+
+- Some good overview papers on control charts include Benneyan et al. 2003, [*Statistical process control as a tool for research and healthcare improvement*](http://qualitysafety.bmj.com/content/12/6/458.full.pdf), BMJ Quality & Safety 12:458-464; Mohammed et al. 2008, [*Plotting basic control charts: tutorial notes for healthcare practitioners*](https://www.researchgate.net/profile/William_Woodall/publication/5468089_Plotting_control_charts_Tutorial_notes_for_healthcare_practitioners/links/00b49521d1165f1f49000000.pdf), BMJ Quality & Safety 17:137-145; and Limaye et al. 2008, [*A Case Study in Monitoring Hospital--Associated Infections with Count Control Charts*](https://www.researchgate.net/profile/Christina_Mastrangelo/publication/233015368_A_Case_Study_in_Monitoring_Hospital-Associated_Infections_with_Count_Control_Charts/links/552c5b530cf29b22c9c44787/A-Case-Study-in-Monitoring-Hospital-Associated-Infections-with-Count-Control-Charts.pdf), Quality Engineering 20:404-413. [Wheeler 2010](http://www.qualitydigest.com/inside/quality-insider-column/individual-charts-done-right-and-wrong.html) covers why you shouldn't use 3$\sigma$ for control limits in *I* charts.    
+
+<br>
+\vspace{12pt}
+
+- A straight-to-the-point reference/tool for doing control charts in R is Anhøj 2016, [*Control Charts with qicharts for R*](https://cran.r-project.org/web/packages/qicharts/vignettes/controlcharts.html).
+
+<br>
+\vspace{12pt}
+
+- A good basic overview book is Carey and Lloyd 2001, [*Measuring Quality Improvement in Healthcare*](https://www.amazon.com/Measuring-Quality-Improvement-Healthcare-Applications/dp/0527762938/), American Society for Quality.  
+
+<br>
+\vspace{12pt}
+
+- A good book that covers both basic and advanced topics is Provost and Murray 2011, [*The Health Care Data Guide*](https://www.amazon.com/Health-Care-Data-Guide-Improvement/dp/0470902582/), Jossey-Bass.  
+
+<br>
+\vspace{12pt}
+
+- The papers that discuss the uselessness of the trend test in run and control charts include Davis & Woodall 1988, [*Performance of the control chart trend rule under linear shift*](http://asq.org/qic/display-item/index.pl?item=5597), Journal of Quality Technology 20:260-262, and Anhøj & Olesen 2014, [*Run charts revisited: A simulation study of run chart rules for detection of non-random variation in health care processes*](http://journals.plos.org/plosone/article?id=10.1371/journal.pone.0113825), PLOS One 9(11): e113825.
+
+<br>
+\vspace{12pt}
+
+- Finally, some important warnings about when control charts fail (and a useful alternative, GAMs) can be found in Morton et al. 2009, [*Hospital adverse events and control charts: the need for a new paradigm*](http://www.journalofhospitalinfection.com/article/S0195-6701(09)00340-5/abstract), Journal of Hospital Infection 73(3):225–231, as well as in Morton et al. 2007, [*New control chart methods for monitoring MROs in Hospitals*](https://www.researchgate.net/profile/Edward_Tong2/publication/43477704_New_control_chart_methods_for_monitoring_MROs_in_hospitals/links/5600d22e08aec948c4fa93cd.pdf), Australian Infection Control 12(1):14-18.    
+
+<br>
+\vspace{12pt}
+
+- Wikipedia is a good place to start learning about probability distributions and their mean-variance relationships, e.g., (click the name to go to the link):   
+    - [Poisson](https://en.wikipedia.org/wiki/Poisson_distribution)
+    - [binomial](https://en.wikipedia.org/wiki/Binomial_distribution)
+    - [normal](https://en.wikipedia.org/wiki/Normal_distribution)
+    - [geometric](https://en.wikipedia.org/wiki/Geometric_distribution)
+    - [Weibull](https://en.wikipedia.org/wiki/Weibull_distribution)
+    - [A gallery of distributions (NIST)](http://www.itl.nist.gov/div898/handbook/eda/section3/eda366.htm)
+    - [Common probability distributions: the data scientist’s crib sheet (Cloudera)](http://blog.cloudera.com/blog/2015/12/common-probability-distributions-the-data-scientists-crib-sheet/)  
+  
+<br>
+\vspace{12pt}
+
+- The template used for the book can be found at https://github.com/sydneykpaul/blue-bookdown-latex-theme, and was derived from The Legrand Orange Book, which can be found here: https://www.latextemplates.com/template/the-legrand-orange-book. The photos used in this template are courtesy of https://www.pexels.com/.
+
+<!--chapter:end:09_AdditionalResources.Rmd-->
+
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(tidyr)
+
+plotSPC <- function(subgroup, point, mean, sigma, k = 3,
+                    ucl.show = TRUE, lcl.show = TRUE,
+                    band.show = TRUE, rule.show = TRUE,
+                    ucl.max = Inf, lcl.min = -Inf,
+                    label.x = "Subgroup", label.y = "Value") {
+  # Plots control chart with ggplot
+  ##
+  # Args:
+  # subgroup: Subgroup definition (for x-axis)
+  # point: Subgroup sample values (for y-axis)
+  # mean: Process mean value (for center line)
+  # sigma: Process variation value (for control limits)
+  # k: Specification for k-sigma limits above and below center line, default is 3
+  # ucl.show: Visible upper control limit? Default is true
+  # lcl.show: Visible lower control limit? Default is true
+  # band.show: Visible bands between 1-2 sigma limits? Default is true
+  # rule.show: Highlight run rule indicators in orange? Default is true
+  # ucl.max: Maximum feasible value for upper control limit
+  # lcl.min: Minimum feasible value for lower control limit
+  # label.x: Specify x-axis label
+  # label.y: Specify y-axis label
+
+  df = data.frame(subgroup, point)
+  df$ucl = pmin(ucl.max, mean + k*sigma)
+  df$lcl = pmax(lcl.min, mean - k*sigma)
+  warn.points = function(rule, num, den) {
+    sets = mapply(seq, 1:(length(subgroup) - (den - 1)),
+                  den:length(subgroup))
+    hits = apply(sets, 2, function(x) sum(rule[x])) >= num
+    intersect(c(sets[,hits]), which(rule))
+  }
+  orange.sigma = numeric()
+
+  p = ggplot(data = df, aes(x = subgroup)) +
+    geom_hline(yintercept = mean, col = "gray", size = 1)
+  if (ucl.show) {
+    p = p + geom_line(aes(y = ucl), col = "gray", size = 1)
+  }
+  if (lcl.show) {
+    p = p + geom_line(aes(y = lcl), col = "gray", size = 1)
+  }
+  if (band.show) {
+    p = p +
+      geom_ribbon(aes(ymin = mean + sigma,
+                      ymax = mean + 2*sigma), alpha = 0.1) +
+      geom_ribbon(aes(ymin = pmax(lcl.min, mean - 2*sigma),
+                      ymax = mean - sigma), alpha = 0.1)
+    orange.sigma = unique(c(
+      warn.points(point > mean + sigma, 4, 5),
+      warn.points(point < mean - sigma, 4, 5),
+      warn.points(point > mean + 2*sigma, 2, 3),
+      warn.points(point < mean - 2*sigma, 2, 3)
+    ))
+  }
+  df$warn = "blue"
+  if (rule.show) {
+    shift.n = round(log(sum(point!=mean), 2) + 3)
+    orange = unique(c(orange.sigma,
+                      warn.points(point > mean - sigma & point < mean + sigma, 15, 15),
+                      warn.points(point > mean, shift.n, shift.n),
+                      warn.points(point < mean, shift.n, shift.n)))
+    df$warn[orange] = "orange"
+  }
+  df$warn[point > df$ucl | point < df$lcl] = "red"
+
+
+ p +
+    geom_line(aes(y = point), col = "royalblue3") +
+    geom_point(data = df, aes(x = subgroup, y = point, col = warn)) +
+    scale_color_manual(values = c("blue" = "royalblue3", "orange" = "orangered", "red" = "red3"), guide = FALSE) +
+    labs(x = label.x, y = label.y) +
+    theme_bw()
+}
+############## Rachel's Data ##############
+# Set seed for reproducibility
+set.seed(2019)
+
+# Generate fake infections data
+dates <- strftime(seq(as.Date("2013/10/1"), by = "day", length.out = 730), "%Y-%m-01")
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+rachel_data = tibble(months, infections, linedays)
+
+
+
+############## example control charts ##############
+
+# Set seed for reproducibility
+set.seed(72)
+
+############## u chart ##############
+# Generate fake infections data
+dates <- seq(as.Date("2013/10/1"), by = "day", length.out = 730)
+linedays <- sample(30:60,length(dates), replace = TRUE)
+infections <- rpois(length(dates), 2/1000*linedays)
+
+# Aggregate the data by month
+infections <- aggregate(infections, by = list(dates), FUN = sum, na.rm = TRUE)$x
+linedays <- aggregate(linedays, by = list(dates), FUN = sum, na.rm = TRUE)$x
+months <- unique(dates)
+
+# Create a tibble
+uchart_data <- tibble(months, infections, linedays)
+
+
+############## p chart ##############
+# Generate sample data
+discharges <- sample(300:500, 24)
+readmits <- rbinom(24, discharges, .2)
+dates <- seq(as.Date("2013/10/1"), by = "month", length.out = 24)
+
+# Create a tibble
+pchart_data <- tibble(dates, readmits, discharges)
+
+
+############## g chart ##############
+# Generate fake data using u-chart example data
+infections.index <- replace_na(which(infections > 0)[1:30], 0)
+dfind <- data.frame(start = head(infections.index, length(infections.index) - 1) + 1,
+                   end = tail(infections.index, length(infections.index) - 1))
+
+linedays.btwn <- matrix(nrow = length(dfind$start))
+
+for (i in 1:length(linedays.btwn)) {
+  sumover <- seq(dfind$start[i], dfind$end[i])
+  linedays.btwn[i] <- sum(linedays[sumover])
+}
+
+gchart_data <- dplyr::tibble(inf_index = 1:length(linedays.btwn), days_between = linedays.btwn)
+
+
+############## IMR chart ##############
+# Generate fake data
+arrival <- cumsum(rexp(24, 1/10))
+process <- rnorm(24, 5)
+exit <- matrix(nrow = length(arrival))[,1]
+exit[1] <- arrival[1] + process[1]
+
+for (i in 1:length(arrival)) {
+  exit[i] <- max(arrival[i], exit[i - 1]) + process[i]
+}
+
+imrchart_data <- tibble(turnaround_time = exit - arrival, test_num = 1:length(exit))
+
+
+
+############## XbarS chart ##############
+# Generate fake patient wait times data
+waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
+months <- strftime(sort(as.Date('2013-10-01') + sample(0:729, length(waits), TRUE)), "%Y-%m-01")
+sample.n <- as.numeric(table(months))
+xbarschart_data <- tibble(months, waits)
+
+
+############## t chart ##############
+# Generate sample data using g-chart example data
+y <- linedays.btwn ^ (1/3.6)
+mr <- matrix(nrow = length(y) - 1)
+for (i in 1:length(y) - 1) {
+  mr[i] <- abs(y[i + 1] - y[i])
+}
+mr <-  mr[mr <= 3.27 * mean(mr)]
+tchart_data <- tibble(inf_index = 1:length(y), days_between = y)
+
+
+############## change in process example ##############
+# Create fake data with change in process at 28 months
+intervention = data.frame(date = seq(as.Date("2006-01-01"), by = 'month', length.out = 48),
+                          y = c(rpois(28, 6), rpois(20, 3)),
+                          n = round(rnorm(48, 450, 50)))
+```
+  
+---
+title: "10_UsefulReferences"
+output: html_document
+---
+
+
+
+## Useful References {#useful_resources}
+- For more information, a good overview of run charts can be found in Perla et al. 2011, [*The run chart: a simple analytical tool for learning from variation in healthcare processes*](http://www.med.unc.edu/cce/files/education-training/The%20run%20chart%20a%20simple%20analytical%20tool.pdf), BMJ Quality & Safety 20:46-51.  
+
+<br>
+
+- A straight-to-the-point reference/tool for doing run charts in R is Anhøj 2016, [*Run charts with R*](https://cran.r-project.org/web/packages/qicharts/vignettes/runcharts.html).
+
+<br>
+
+- Some good overview papers on control charts include Benneyan et al. 2003, [*Statistical process control as a tool for research and healthcare improvement*](http://qualitysafety.bmj.com/content/12/6/458.full.pdf), BMJ Quality & Safety 12:458-464; Mohammed et al. 2008, [*Plotting basic control charts: tutorial notes for healthcare practitioners*](https://www.researchgate.net/profile/William_Woodall/publication/5468089_Plotting_control_charts_Tutorial_notes_for_healthcare_practitioners/links/00b49521d1165f1f49000000.pdf), BMJ Quality & Safety 17:137-145; and Limaye et al. 2008, [*A Case Study in Monitoring Hospital--Associated Infections with Count Control Charts*](https://www.researchgate.net/profile/Christina_Mastrangelo/publication/233015368_A_Case_Study_in_Monitoring_Hospital-Associated_Infections_with_Count_Control_Charts/links/552c5b530cf29b22c9c44787/A-Case-Study-in-Monitoring-Hospital-Associated-Infections-with-Count-Control-Charts.pdf), Quality Engineering 20:404-413. [Wheeler 2010](http://www.qualitydigest.com/inside/quality-insider-column/individual-charts-done-right-and-wrong.html) covers why you shouldn't use 3$\sigma$ for control limits in *I* charts.    
+
+<br>
+
+- A straight-to-the-point reference/tool for doing control charts in R is Anhøj 2016, [*Control Charts with qicharts for R*](https://cran.r-project.org/web/packages/qicharts/vignettes/controlcharts.html).
+
+<br>
+\vspace{12pt}
+
+- A good basic overview book is Carey and Lloyd 2001, [*Measuring Quality Improvement in Healthcare*](https://www.amazon.com/Measuring-Quality-Improvement-Healthcare-Applications/dp/0527762938/), American Society for Quality.  
+
+<br>
+\vspace{12pt}
+
+- A good book that covers both basic and advanced topics is Provost and Murray 2011, [*The Health Care Data Guide*](https://www.amazon.com/Health-Care-Data-Guide-Improvement/dp/0470902582/), Jossey-Bass.  
+
+<br>
+
+- The papers that discuss the uselessness of the trend test in run and control charts include Davis & Woodall 1988, [*Performance of the control chart trend rule under linear shift*](http://asq.org/qic/display-item/index.pl?item=5597), Journal of Quality Technology 20:260-262, and Anhøj & Olesen 2014, [*Run charts revisited: A simulation study of run chart rules for detection of non-random variation in health care processes*](http://journals.plos.org/plosone/article?id=10.1371/journal.pone.0113825), PLOS One 9(11): e113825.
+
+<br>
+
+- Finally, some important warnings about when control charts fail (and a useful alternative, GAMs) can be found in Morton et al. 2009, [*Hospital adverse events and control charts: the need for a new paradigm*](http://www.journalofhospitalinfection.com/article/S0195-6701(09)00340-5/abstract), Journal of Hospital Infection 73(3):225–231, as well as in Morton et al. 2007, [*New control chart methods for monitoring MROs in Hospitals*](https://www.researchgate.net/profile/Edward_Tong2/publication/43477704_New_control_chart_methods_for_monitoring_MROs_in_hospitals/links/5600d22e08aec948c4fa93cd.pdf), Australian Infection Control 12(1):14-18.    
+
+<br>
+
+- Wikipedia is a good place to start learning about probability distributions and their mean-variance relationships, e.g., (click the name to go to the link):   
+    - [Poisson](https://en.wikipedia.org/wiki/Poisson_distribution)
+    - [binomial](https://en.wikipedia.org/wiki/Binomial_distribution)
+    - [normal](https://en.wikipedia.org/wiki/Normal_distribution)
+    - [geometric](https://en.wikipedia.org/wiki/Geometric_distribution)
+    - [Weibull](https://en.wikipedia.org/wiki/Weibull_distribution)
+    - [A gallery of distributions (NIST)](http://www.itl.nist.gov/div898/handbook/eda/section3/eda366.htm)
+    - [Common probability distributions: the data scientist’s crib sheet (Cloudera)](http://blog.cloudera.com/blog/2015/12/common-probability-distributions-the-data-scientists-crib-sheet/)  
+  
+<br>
+
+<!--chapter:end:10_UsefulReferences.Rmd-->
+

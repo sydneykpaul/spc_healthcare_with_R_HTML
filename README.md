@@ -1,4 +1,6 @@
-Open `SPC_Healthcare_with_R.pdf`
+# WIP converting pdf of book into interactive HTML page
+
+---
 
 **Statistical Process Control for Healthcare with R**, by Barry, Bettinger, Cooper, and Paul.  
 
