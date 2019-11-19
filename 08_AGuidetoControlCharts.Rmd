@@ -1,11 +1,11 @@
 ---
-title: "07_ConfusionBetweenCharts"
-output: pdf_document
+title: "08_GuidetoControlCharts"
+output: html_document
 ---
 
 # A Guide to Control Charts {#guide_controlCharts}
 
-In this chapter we go over specific types of control charts, discuss tips and tricks for working with control charts, and introduce you to our own custom SPC plot function. 
+In this chapter we go over specific types of control charts and discuss tips and tricks for working with them. Again, unless you are monitoring a stable process, control charts are meaningless.  
 
 ## Types of Control Charts {#types_controlCharts}
 
@@ -24,195 +24,85 @@ In this chapter we go over specific types of control charts, discuss tips and tr
 | Time between (rare) events | *t* chart | Weibull |
 
 <br>
-\vspace{12pt}
 
 For count, rate, or proportion data, carefully define your numerator and denominator. Evaluate each separately over time to see whether there are any unusual features or patterns. Sometimes patterns can occur in one or the other, then disappear or are obscured when coalesced into a rate or proportion.  
 
 <br>
-\vspace{12pt}
 
 For count data, prefer *u*-charts to *c*-charts. In most cases, we do not have a constant denominator, so c-charts would not be appropriate. Even when we do, using a *u*-chart helps reduce audience confusion because you are explicitly stating the "per *x*".    
 
 <br>
-\vspace{12pt}
 
 For proportion data, prefer *p*-charts to *np*-charts. Again, we almost never have a constant denominator, so *np*-charts would not be appropriate. Even when we do, using a *p*-chart helps reduce audience confusion by explicitly stating the "per *x*".   
 
 <br>
-\vspace{12pt}
 
 Rare events can be evaluated either by *g*-charts for discrete events/time steps, or *t*-charts for continuous time.
 
 <br>
-\vspace{12pt}
 
 For continuous data, the definition of the control limits will depend on your question and the data at hand. To detect small shifts in the mean quickly, an EWMA is probably best, while to understand natural variation and try to detect special cause variation, an $\bar{x}$ and *s* chart will be more useful.
 
 <br>
-\vspace{12pt}
 
 In the rare cases you may need an individual chart, do *not* use 3$\sigma$ for the control limits; you must use 2.66$MR_{bar}$ instead to ensure the limits are presented correctly.  
 
 <br>
-\vspace{12pt}
-<br>
-\vspace{12pt}
 
-Note: EWMA and CUSUM charts aren't "standard" control charts in that the only guideline for detecting special cause variation is a point outside the limits. So while they can't detect special cause variation like control charts, they *can* detect shifts in mean with fewer points than a standard control chart. Because they are not standard, they are not included in the `qicharts2` package. We did create a custom SPC function which can be used for these charts, shown [later in this chapter](#custom_SPC_function).
+Note: EWMA and CUSUM charts aren't "standard" control charts in that the only guideline for detecting special cause variation is a point outside the limits. So while they can't detect special cause variation like control charts, they *can* detect shifts in mean with fewer points than a standard control chart. 
 
 
-### *u*-chart example
+## *u*-chart example
 
 The majority of healthcare metrics of concern are rates, so the most common control chart is the *u*-chart.  
 
 Sometimes, a KPI is based on counts. This is obviously problematic for process monitoring in most healthcare situations because it ignores the risk exposure---for example, counting the number of infections over time is meaningless if you don't account for the change in the number of patients in that same time period. When KPIs are measuring counts with a denominator that is *truly fixed*, technically a *c*-chart can be used. This makes sense in manufacturing, but not so much in healthcare, where the definition of the denominator can be very important. You should always use a context-relevant denominator, so in basically all cases a *u*-chart should be preferred to a *c*-chart. 
 
 <br>
-\vspace{12pt}
 
-**Mean for rates (*u*):** &nbsp;&nbsp; $u = {\frac{\Sigma{c_i}}{{\Sigma{n_i}}}}$
-
-**3$\sigma$ control limits for rates (*u*):** &nbsp;&nbsp; $3\sqrt{\frac{u}{n_i}}$   
 
 *Infections per 1000 central line days*
 
-``` {r uex}
-qicharts2::qic(x = months, y = infections, n = linedays, data = uchart_data,
-               multiply = 1000, chart = 'u', x.angle = 45,
-               title = "u chart", xlab = "Month",
-               ylab = "Infection count per 1000 patient days")
-```
 
-### *p*-chart example
+
+## *p*-chart example
 
 When your metric is a true proportion (and not a rate, e.g., a count per 100), a *p*-chart is the appropriate control chart to use.  
 
 <br>
-\vspace{12pt}
-
-**Mean for proportions (*p*):** &nbsp;&nbsp; $p = {\frac{\Sigma{y_i}}{\Sigma{n_i}}}$
-
-**3$\sigma$ control limits for proportions (*p*):** &nbsp;&nbsp; $3\sqrt{\frac {p (1 - p)}{n_i}}$  
-
 
 *Proportion of patients readmitted*  
 
-```{r}
-qicharts2::qic(x = dates, y = readmits, n = discharges, data = pchart_data,
-               y.percent = TRUE, chart = 'p', x.angle = 45,
-               title = "p chart", xlab = "Month",
-               ylab = "Proportion readmitted")
-```
 
-### *g*-chart example
 
-There are important KPIs in healthcare related to rare events, such as is common in patient safety and infection control. These commonly have 0 values for several subgroups within the process time-period. In these cases, you need to use *g*-charts for a discrete time scale (e.g., days between events) or *t*-charts for a continuous time scale (e.g., time between events).
+## *g*-chart example
+
+There are important KPIs in healthcare related to rare events, such as is common in patient safety and infection control. These often have 0 values for several subgroups within the process time-period. In these cases, you need to use *g*-charts for a discrete time scale (e.g., days between events) or *t*-charts for a continuous time scale (e.g., time between events).
 
 <br>
-\vspace{12pt}
-
-**Mean for infrequent counts (*g*):** &nbsp;&nbsp; $g = {\frac{\Sigma{g_i}}{\Sigma{n_i}}}$
-&nbsp;&nbsp;&nbsp;&nbsp; *where*  
-&nbsp;&nbsp;&nbsp;&nbsp; $g$ = units/opportunities between events    
-
-**3$\sigma$ limits for infrequent counts (*g*):** &nbsp;&nbsp; $3\sqrt{g (g + 1)}$    
 
 
 *Days between infections*  
 
 
-```{r}
-qicharts2::qic(x = inf_index, y = days_between, data = gchart_data,
-               chart = 'g', x.angle = 45, title = "g chart",
-               xlab = "Infection number",
-               ylab = "Line days between infections")
-```
 
-### *c*- and *np*-chart details  
+## *I-MR* chart
 
-Simply for completeness, means and control limits for *c*- and *np*-charts are presented here. To emphasize that *u*- and *p*-charts should be preferred (respectively), no examples are given.    
+When you have a single measurement per subgroup, the *I-MR* combination chart is appropriate. They should always be used together. 
 
-<br>
-\vspace{12pt}
-
-**Mean for counts (*c*):** &nbsp;&nbsp; $\frac{\Sigma{c_i}}{n}$
-
-**3$\sigma$ control limits for counts (*c*)(not shown):** &nbsp;&nbsp; $3\sqrt{c}$   
-
-<br>
-\vspace{12pt}
-
-**Mean for equal-opporuntity proportions (*np*):** &nbsp;&nbsp; $np = {\frac{\Sigma{y_i}}{n}}$  
-&nbsp;&nbsp;&nbsp;&nbsp; *where*  
-&nbsp;&nbsp;&nbsp;&nbsp; $n$ is a constant  
-
-**3$\sigma$ control limits for equal-opporuntity proportions (*np*):** &nbsp;&nbsp; $3\sqrt{np (1 - p)}$  
-&nbsp;&nbsp;&nbsp;&nbsp; *where*  
-&nbsp;&nbsp;&nbsp;&nbsp; $n$ is a constant  
-
-
-
-
-### *I-MR* chart
-
-When you have a single measurement per subgroup, the *I-MR* combination chart is appropriate. They should always be used together. When using the `qicharts2` package, this means calling the `qic` function twice, once for each type of plot.
-
-<br>
-\vspace{12pt}
-
-**Mean($\bar{x}$):** &nbsp;&nbsp; $\bar{x} = \frac{\sum_{x_{i}}}{n}$
-
-**Control limits for normal data (*I*):** 2.66$MR_{bar}$  
-&nbsp;&nbsp;&nbsp;&nbsp; *where*  
-&nbsp;&nbsp;&nbsp;&nbsp; $MR_{bar}$ = average moving range of *x*s, excluding those > 3.27$MR_{bar}$   
-
-
-*Lab results turnaround time*
-
-```{r}
-qicharts2::qic(x = test_num, y = turnaround_time, data = imrchart_data,
-               chart = 'i', x.angle = 45, title = "i chart",
-               xlab = "Test number", ylab = "Turnaround time")
-
-qicharts2::qic(x = test_num, y = turnaround_time, data = imrchart_data,
-               chart = 'mr', x.angle = 45, title = "mr chart",
-               xlab = "Test number", ylab = "Turnaround time")
-```
 Unlike the attribute control charts, the *I-MR* chart requires a little interpretation. The *I* portion is the data itself, but the *MR* part shows the variation over time, specifically, the range between successive data points.  
 
 Look at the *MR* part first; if it's in control, then any special cause variation in the *I* portion can be attributed to a change in process. If the *MR* chart out of control, the control limits for the *I* portion will be wrong, and should not be interpreted. 
+
+*Lab results turnaround time*
 
 
 
 ### $\bar{x}$ and *s* chart
 
-When you have a sample or multiple measurements per subgroup, the $\bar{x}$ and *s* chart combination is the appropriate choice. Just as with the *I-MR* chart, they should always be used together. 
-
-<br>
-\vspace{12pt}
-
-Control limits (3&sigma;) are calculated as follows:  
- 		  
-**Variable averages ($\bar{x}$):** &nbsp;&nbsp; $3\frac{\bar{s}}{\sqrt{n_i}}$
- 		  
-**Variable standard deviation (*s*):** &nbsp;&nbsp; $3\bar{s}\sqrt{1-c_4^2}$  
-&nbsp;&nbsp;&nbsp;&nbsp; *where* $c_4 = \sqrt{\frac{2}{n-1}}\frac{\Gamma(\frac{n}{2})}{\Gamma(\frac{n-1}{2})}$  
-
+When you have a sample or multiple measurements per subgroup, the $\bar{x}$ and *s* chart combination is the appropriate choice. Just as with the *I-MR* chart, you need to look at the *s* chart first---if it shows special-cause variation, the control limits for the $\bar{x}$ chart will be wrong. If it doesn't, you can go on to interpret the $\bar{x}$ chart. 
 
 *Patient wait times*   
-
-```{r}
-qicharts2::qic(x = months, y = waits, data = xbarschart_data,
-               chart = 'xbar', x.angle = 45, title = "xbar chart",
-               xlab = "Test number", ylab = "Turnaround time")
-
-qicharts2::qic(x = months, y = waits, data = xbarschart_data, chart = 's',
-               x.angle = 45, title = "s chart", xlab = "Test number",
-               ylab = "Turnaround time")
-```
-Just as with the *I-MR* chart, you need to look at the *s* chart first---if it shows special-cause variation, the control limits for the $\bar{x}$ chart will be wrong. If it doesn't, you can go on to interpret the $\bar{x}$ chart. 
-
-
 
 
 ### *t*-chart example
@@ -220,69 +110,68 @@ Just as with the *I-MR* chart, you need to look at the *s* chart first---if it s
 If the time between rare events is best represented by a continuous time scale, use a *t*-chart. If a discrete time scale is reasonable, a *g*-chart may be simpler to implement and easier to interpret without transformation, though a *t*-chart is also acceptable.
 
 <br>
-\vspace{12pt}
 
-**Mean for time between events (*t*)(not shown):** &nbsp;&nbsp; $t = \bar{x}({y_i})$   
-&nbsp;&nbsp;&nbsp;&nbsp; *where*  
-&nbsp;&nbsp;&nbsp;&nbsp; $t$ = time between events, where *t* is always > 0    
-&nbsp;&nbsp;&nbsp;&nbsp; $y = t^{\frac{1}{3.6}}$  
-
-**Control limits for time between events (*t*)(not shown):** &nbsp;&nbsp; 2.66$MR_{bar}$    
-&nbsp;&nbsp;&nbsp;&nbsp; $MR_{bar}$ = average moving range of *y*s, excluding those > 3.27$MR_{bar}$   
-    
-Note: *t* chart mean and limits can be transformed back to the original scale by raising those values to the 3.6 power. In addition, the y axis can be plotted on a log scale to make the display more symmetrical (which can be easier than explaining how the distribution works to a decision maker).   
 
 *Days between infections*  
 
-```{r}
-qicharts2::qic(x = inf_index, y = days_between, data = tchart_data,
-               chart = 't', x.angle = 45, title = "t chart",
-               xlab = "Infection number",
-               ylab = "Line days between infections")
-```
 
+
+### EWMA chart
+
+OVERVIEW HERE
+
+*Patient wait times (continued)*  
+
+
+
+### CUSUM chart
+
+OVERVIEW HERE
+
+*Patient wait times (continued)* 
 
 
 
 
 ## Tips and tricks for successful control chart use {#tips_tricks_controlCharts}
 
-- The definition of your control limits depends on the trade-off between sensitivity and specificity for the question at hand. Typical control charts are built on 3$\sigma$ limits, which provides a balanced trade-off between sensitivity and specificity, that is, between under- and over-alerting to an indication of special cause variation. When you need to err on the side of caution---for example, in patient safety applications---2$\sigma$ limits may be more appropriate, while understanding that false positives will be higher. If you need to err on the side of certainty, 4-6$\sigma$ limits may be more useful.
+> Statistical Process Control is not about statistics, it is not about 'process-hyphen-control', and it is not about conformance to specifications. It is about the continual improvement of processes and outcomes. And it is, first and foremost, *a way of thinking with some tools attached*. --Donald J. Wheeler, *Understanding Variation*  
+
+<br>  
+
+- The definition of your control limits depends on the trade-off between sensitivity and specificity for the question at hand. Typical control charts are built on 3$\sigma$ limits, which provides a balanced trade-off between sensitivity and specificity, that is, between under- and over-alerting to an indication of special cause variation. When you need to err on the side of caution---for example, in patient safety applications---2$\sigma$ limits may be more appropriate, while understanding that false positives will be higher. If you need to err on the side of certainty, 4-6$\sigma$ limits may be more useful, but you should expect that false negatives will more likely occur.
 
 <br>
-\vspace{12pt}
 
 - With fewer than 20 observations, there is an increased chance of missing special cause variation. With more than 30 observations, there's an increased chance of detecting special cause variation that is really just chance. Knowing these outcomes are possible is useful to help facilitate careful thinking when control charts indicate special cause variation.       
 
 <br>
-\vspace{12pt}
 
 - Ensure your data values and control limits make sense. For example, if you have proportion data and your control limits fall above 1 (or above 100%) or below 0, there's clearly an error somewhere. Ditto with negative counts.    
 
 <br>
-\vspace{12pt}
 
-- For raw ordinal data (such as likert scores), do not use means or control limits. Just. Don't. If you must plot a single value, convert to a proportion (e.g., "top box scores") first. However, stacked bar or mosaic charts help visualize this kind of data much better, and can be done in the same amount of space.      
+- For raw ordinal data (such as likert scores), do not use means or control limits. Just. Don't. If you must plot a single value, convert to a proportion (e.g., "top box scores") first. However, stacked bar or mosaic charts help visualize this kind of data more clearly.      
 
 <br>
-\vspace{12pt}
 
 - Control charts don't measure "statistical significance"---they are meant to reduce the chances of incorrectly deciding whether a process is in (statistical) control or not. Control limits are *not* confidence limits.
 
 <br>
-\vspace{12pt}
 
-- YTD comparisons don't work because they encourage naive, point-to-point comparisons and ignore natural variation---and can encourage inappropriate knee-jerk reactions. There is never useful information about a process in only one or two data points.    
-
-<br>
-\vspace{12pt}
-
-- A control chart should measure one defined process, so you may need to create multiple charts stratified by patient population, unit, medical service, time of day, etc. to avoid mixtures of processes.       
+- YTD and YOY comparisons don't work because they encourage naive, point-to-point comparisons and ignore natural variation---and can encourage inappropriate knee-jerk reactions. There is never useful information about a process in only one or two data points.    
 
 <br>
-\vspace{12pt}
 
-- With very large sample or subgroup sizes, control limits will be too small, and the false positive rate will skyrocket.
+- "Stoplight" indicators (red/yellow/green) are similarly ineffective and potentially harmful for decision-making because, like YTD or YOY data, they completely obscure natural variation. 
+
+<br>
+
+- A control chart should measure a single, well-defined, stable process, so you may need to create multiple charts stratified by patient population, unit, medical service, time of day, etc. to avoid mixtures of processes.       
+
+<br>
+
+- With very large sample or subgroup sizes, control limits will be too small, and the false positive rate will skyrocket. Prime charts can be used instead. 
 
 
 ### When to revise control limits
@@ -295,99 +184,103 @@ Let's look at an example using data that we've created.
 
 Say that an intervention happened at the start of year 3, but there was a lag between the intervention and when it actually showed up in the data.
 
-```{r}
-qicharts2::qic(x = date, y = y, n = n, data = intervention, chart = 'u',
-               multiply = 1000, title = "u chart", ylab = "Value per 1,000",
-               xlab = "Subgroup", part = 24)
-```
 
 <br>
-\vspace{12pt}
-
-Of course, the change point can be placed arbitrarily in a `qic` graph---with corresponding changes in control limits. For example, using the same data as above, compare those results with those when the change point is moved forward by 2, 4, or 6 time steps (pretending we don't actually know when the process truly changed):
 
 
-```{r}
-qicharts2::qic(x = date, y = y, n = n, data = intervention, chart = 'u',
-               multiply = 1000, title = "u chart", ylab = "Value per 1,000",
-               xlab = "Subgroup", part = 26)
-
-qicharts2::qic(x = date, y = y, n = n, data = intervention, chart = 'u',
-               multiply = 1000, title = "u chart", ylab = "Value per 1,000",
-               xlab = "Subgroup", part = 28)
-
-qicharts2::qic(x = date, y = y, n = n, data = intervention, chart = 'u',
-               multiply = 1000, title = "u chart",  ylab = "Value per 1,000",
-               xlab = "Subgroup", part = 30)
-```
+Of course, the change point can be placed arbitrarily---with corresponding changes in control limits. For example, using the same data as above, compare those results with those when the change point is moved forward by 2, 4, or 6 time steps (pretending we don't actually know when the process truly changed):
 
 <br>
-\vspace{12pt}
 
 As you can see, the conclusions you could draw from a single control chart might be different depending on when the breakpoint is set.  
 
-Use common sense and avoid the urge to change medians or means and control limits for every intervention unless evidence is clear that it worked.
+Use common sense and avoid the urge to change medians or means and control limits for every intervention unless the evidence is clear that it worked, and that the process had been previously stable, exhibiting only common cause variation. 
 
 SPC charts are blunt instruments, and are meant to try to detect changes in a process as simply as possible. When there is no clear evidence in SPC charts for a change, more advanced techniques---such as ARIMA models or intervention/changepoint analysis---can be used to assess whether there was a change in the statistical process at or near the intervention point.  
 
 
-## Custom SPC function {#custom_SPC_function}
 
-The `qicharts2` package is great for plotting a wide variety of charts. However, it does not contain the ability to plot EWMA or CUSUM charts. Also you might want more fine control over your plot. In these situations, you have to create the plot from scratch. We have created the following custom SPC function. Below are the EWMA and CUSUM plots using this function. The full code creating the function and examples of previous charts we have gone over can be found in the section [Custom SPC Function](#code_customSPC_function).
+## Chapter appendix: Equations for control charts
+
+### Attribute control charts
+
+#### u-chart
+
+**Mean for rates (*u*):** &nbsp;&nbsp; $u = {\frac{\Sigma{c_i}}{{\Sigma{n_i}}}}$
+
+**3$\sigma$ control limits for rates (*u*):** &nbsp;&nbsp; $3\sqrt{\frac{u}{n_i}}$   
+
+#### p-chart
+
+**Mean for proportions (*p*):** &nbsp;&nbsp; $p = {\frac{\Sigma{y_i}}{\Sigma{n_i}}}$
+
+**3$\sigma$ control limits for proportions (*p*):** &nbsp;&nbsp; $3\sqrt{\frac {p (1 - p)}{n_i}}$  
+
+#### g-chart
+
+**Mean for infrequent counts (*g*):** &nbsp;&nbsp; $g = {\frac{\Sigma{g_i}}{\Sigma{n_i}}}$
+&nbsp;&nbsp;&nbsp;&nbsp; *where*  
+&nbsp;&nbsp;&nbsp;&nbsp; $g$ = units/opportunities between events    
+
+**3$\sigma$ limits for infrequent counts (*g*):** &nbsp;&nbsp; $3\sqrt{g (g + 1)}$    
+
+#### *c*-chart[^1]
+
+[^1]: Simply for completeness, formulas for means and control limits for *c*- and *np*-charts are presented here. To emphasize that *u*- and *p*-charts should be preferred (respectively), no examples were given in the text.    
+
+**Mean for counts (*c*):** &nbsp;&nbsp; $\frac{\Sigma{c_i}}{n}$
+
+**3$\sigma$ control limits for counts (*c*)(not shown):** &nbsp;&nbsp; $3\sqrt{c}$   
+
+#### *np*-chart[^1]
+
+**Mean for equal-opporuntity proportions (*np*):** &nbsp;&nbsp; $np = {\frac{\Sigma{y_i}}{n}}$  
+&nbsp;&nbsp;&nbsp;&nbsp; *where*  
+&nbsp;&nbsp;&nbsp;&nbsp; $n$ is a constant  
+
+**3$\sigma$ control limits for equal-opporuntity proportions (*np*):** &nbsp;&nbsp; $3\sqrt{np (1 - p)}$  
+&nbsp;&nbsp;&nbsp;&nbsp; *where*  
+&nbsp;&nbsp;&nbsp;&nbsp; $n$ is a constant  
 
 
-### EWMA chart
+### Numeric control charts
+
+#### I-MR charts
+
+**Mean($\bar{x}$):** &nbsp;&nbsp; $\bar{x} = \frac{\sum_{x_{i}}}{n}$
+
+**Control limits for normal data (*I*):** 2.66$MR_{bar}$  
+&nbsp;&nbsp;&nbsp;&nbsp; *where*  
+&nbsp;&nbsp;&nbsp;&nbsp; $MR_{bar}$ = average moving range of *x*s, excluding those > 3.27$MR_{bar}$   
+
+#### $\bar{x}$-*s* charts
+ 		  
+**Variable averages ($\bar{x}$):** &nbsp;&nbsp; $3\frac{\bar{s}}{\sqrt{n_i}}$
+ 		  
+**Variable standard deviation (*s*):** &nbsp;&nbsp; $3\bar{s}\sqrt{1-c_4^2}$  
+&nbsp;&nbsp;&nbsp;&nbsp; 
+*where* $c_4 = \sqrt{\frac{2}{n-1}}\frac{\Gamma(\frac{n}{2})}{\Gamma(\frac{n-1}{2})}$  
+
+#### *t*-charts
+
+**Mean for time between events (*t*)(not shown):** &nbsp;&nbsp; $t = \bar{x}({y_i})$   
+&nbsp;&nbsp;&nbsp;&nbsp; *where*  
+&nbsp;&nbsp;&nbsp;&nbsp; $t$ = time between events, where *t* is always > 0    
+&nbsp;&nbsp;&nbsp;&nbsp; $y = t^{\frac{1}{3.6}}$  
+
+**Control limits for time between events (*t*)(not shown):** &nbsp;&nbsp; 2.66$MR_{bar}$    
+&nbsp;&nbsp;&nbsp;&nbsp; $MR_{bar}$ = average moving range of *y*s, excluding those > 3.27$MR_{bar}$   
+    
+Note: *t* chart mean and limits can be transformed back to the original scale by raising those values to the 3.6 power. In addition, the y axis can be plotted on a log scale to make the display more symmetrical (which can be easier than explaining how the distribution works to a decision maker).   
+
+### Quick mean change detection charts
+
+#### EWMA charts
 
 **Control limits for exponentially weighted moving average (EWMA):**  $3\frac{\bar{s}}{\sqrt{n_i}}\sqrt{\frac{\lambda}{2-\lambda}[1 - (1 - \lambda)^{2i}]}$   
 &nbsp;&nbsp;&nbsp;&nbsp; *where* $\lambda$ is a weight that determines the influence of past observations. If unsure choose $\lambda = 0.2$, but $0.05 \leq \lambda \leq 0.3$ is acceptable (where larger values give stronger weights to past observations).
 
-
-*Patient wait times (continued)*  
-
-``` {r ewmaex}
-# Generate fake patient wait times data
-set.seed(777)
-waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
-months <- strftime(sort(as.Date('2013-10-01') + sample(0:729,
-length(waits), TRUE)), "%Y-%m-01")
-sample.n <- as.numeric(table(months))
-dfw <- data.frame(months, waits)
-
-# Calculate control chart inputs
-subgroup.x <- as.Date(unique(months))
-subgroup.s <- subgroup.x
-point.x <- aggregate(dfw$waits, by = list(months), FUN = mean,
-                     na.rm = TRUE)$x
-point.s <- aggregate(dfw$waits, by = list(months), FUN = sd,
-                     na.rm = TRUE)$x
-mean.x <- mean(waits)
-mean.s <- sqrt(sum((sample.n - 1) * point.s ^ 2) / (sum(sample.n) -
-                                                      length(sample.n)))
-sigma.x <- mean.s / sqrt(sample.n)
-c4 <- sqrt(2 / (sample.n - 1)) * 
-      gamma(sample.n / 2) / gamma((sample.n - 1) / 2)
-sigma.s <- mean.s * sqrt(1 - c4 ^ 2)
-
-# Calculate control chart inputs
-subgroup.z <- subgroup.x
-lambda <- 0.2
-point.z <- matrix( , length(point.x))
-point.z[1] <- mean.x
-for (i in 2:length(point.z)) {
-point.z[i] <- lambda * point.x[i] + (1 - lambda) * point.z[i-1]
-}
-mean.z <- mean.x
-sigma.z <- (mean.s / sqrt(sample.n)) *
-            sqrt(lambda/(2-lambda) *
-            (1 - (1-lambda)^(seq(1:length(point.z)))))
-# Plot EWMA chart
-plotSPC(subgroup.z, point.z, mean.z, sigma.z, k = 3, band.show = FALSE,
-        rule.show = FALSE, label.x = "Month",
-        label.y = "Wait times moving average")
-```
-
-
-### CUSUM chart
+#### CUSUM charts
 
 Lower and upper cumulative sums are calculated as follows:
 
@@ -396,57 +289,3 @@ $S_{h,i} = \max{[0, z_i -k + S_{h,i-1}]}$
 &nbsp;&nbsp;&nbsp;&nbsp; *where* $z_i$ is the standardized normal score for subgroup $i$ and $0.5 \leq k \leq 1$ is a slack value.   
 
 It is common to choose "decision limits" of $\pm 4$ or $\pm 5$.  
-
-{SKP: finish once EWMA fixed}
-
-*Patient wait times (continued)* 
-```{r}
-# Generate fake patient wait times data
-set.seed(777)
-waits <- c(rnorm(1700, 30, 5), rnorm(650, 29.5, 5))
-months <- strftime(sort(as.Date('2013-10-01') +
-                        sample(0:729, length(waits), TRUE)), "%Y-%m-01")
-sample.n <- as.numeric(table(months))
-dfw <- data.frame(months, waits)
-
-# Calculate control chart inputs
-subgroup.x <- as.Date(unique(months))
-subgroup.s <- subgroup.x
-point.x <- aggregate(dfw$waits, by = list(months), FUN = mean,
-                     na.rm = TRUE)$x
-point.s <- aggregate(dfw$waits, by = list(months), FUN = sd, na.rm = TRUE)$x
-mean.x <- mean(waits)
-mean.s <- sqrt(sum((sample.n - 1) * point.s ^ 2) / (sum(sample.n) -
-                                                      length(sample.n)))
-sigma.x <- mean.s / sqrt(sample.n)
-c4 <- sqrt(2 / (sample.n - 1)) *
-      gamma(sample.n / 2) / gamma((sample.n - 1) / 2)
-sigma.s <- mean.s * sqrt(1 - c4 ^ 2)
-
-# Calculate control chart inputs
-subgroup.cusum <- subgroup.x
-slack <- 0.5
-zscore <- (point.x - mean.x)/sigma.x
-point.cusuml <- matrix(nrow = length(zscore))
-point.cusuml[1] <- -max(0, -zscore[1] - slack)
-for (i in 2:length(point.cusuml)) {
-point.cusuml[i] <- -max(0, -zscore[i] - slack - point.cusuml[i-1])
-}
-point.cusumh <- matrix(nrow = length(zscore))
-point.cusumh[1] <- max(0, zscore[1] - slack)
-for (i in 2:length(point.cusuml)) {
-point.cusumh[i] <- max(0, zscore[i] - slack - point.cusumh[i - 1])
-}
-mean.cusum <- 0
-sigma.cusum <- rep(1, length(subgroup.cusum))
-
-# Plot CUSUM chart
-lower.plot <- plotSPC(subgroup.cusum, point.cusuml, mean.cusum, sigma.cusum,
-                      k = 5, band.show = FALSE, rule.show = FALSE,
-                      label.y = "Wait Times? Cumulative sum")
-lower.plot + geom_line(aes(y = point.cusumh), col = "royalblue3") +
-geom_point(aes(y = point.cusumh), col = "royalblue3")
-```
-
-
-
